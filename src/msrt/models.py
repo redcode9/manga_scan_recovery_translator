@@ -98,6 +98,20 @@ class ManifestEngine(BaseModel):
     binary: str | None = None
 
 
+class ManifestFetch(BaseModel):
+    """URL-pipeline metadata recorded by ``msrt run``.
+
+    Populated only when the run originated from a URL (``msrt run``);
+    ``msrt run-local`` leaves ``RunManifest.fetch`` ``None``.
+    """
+
+    strategy: str
+    source_url: str
+    output_dir: str
+    page_count: int
+    warnings: list[str] = Field(default_factory=list)
+
+
 class RunManifest(BaseModel):
     msrt_version: str
     command: str
@@ -112,6 +126,7 @@ class RunManifest(BaseModel):
     output_files: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     metadata: dict[str, str] = Field(default_factory=dict)
+    fetch: ManifestFetch | None = None
 
     def finish(self) -> None:
         self.finished_at = datetime.now(UTC)

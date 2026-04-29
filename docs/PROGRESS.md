@@ -524,6 +524,42 @@ Fix: ora il messaggio di errore include esplicitamente il conteggio (`Il feed ha
 
 **Quality gate (2026-04-29)**: ruff/format/mypy strict clean, **137 test pass** (era 133, +4 nuovi su purge canonical / httpx wrapping / feed truncated hint / regression download promote-cleanup).
 
+### v0.2c — `msrt run <URL>` orchestratore (2026-04-29)
+
+Comando `msrt run <URL>` introdotto come pura orchestrazione di `fetch` + `run-local`. Nessuna nuova logica di scraping: l'adapter resolution e il download passano per `scraper_for_url(url, site=…)` + `scraper.fetch(...)` esattamente come `msrt fetch`, poi i metadata di `FetchResult` (series, chapter_number, chapter_title) alimentano direttamente `run_local`.
+
+**Fetch staging** (per evitare cartelle "fragili" se il run è interrotto):
+1. Fetch in `out/.msrt-fetch/<site>/_pending-<8 hex>` (nome univoco per concorrenza).
+2. Quando `FetchResult` ritorna con metadata, `shutil.move` verso `out/.msrt-fetch/<site>/<series-slug>/<chapter-slug>/`. Se la dir finale esiste già (re-run), viene rimossa prima.
+3. `run_local` riceve la dir finale come input, niente è in `out/` direttamente.
+4. Se `fetch` fallisce con `FetchError` o `NotImplementedError`, lo staging dir viene cancellato e MITR **non parte**.
+5. Se `run_local` fallisce, la dir di fetch resta su disco con messaggio chiaro: l'utente può ri-tentare la traduzione senza riscaricare.
+
+**Manifest URL pipeline** (`src/msrt/models.py`):
+- Nuovo `ManifestFetch` (strategy, source_url, output_dir, page_count, warnings).
+- `RunManifest.fetch: ManifestFetch | None` (popolato solo da `msrt run`, `None` da `msrt run-local`).
+- `build_manifest` e `run_local` accettano nuovi keyword opzionali `input_type`, `input_url`, `fetch_metadata`. Default `"local"`/None per backwards-compat con `run-local`.
+- `pipeline._slugify` esposto come `slugify` per consentire al CLI di costruire il path canonico senza duplicare la logica.
+
+**CLI** (`src/msrt/cli.py`):
+- `@app.command() def run(url, *, out, format=pdf, model, font_path, glossary, auto_glossary, pre_dict, lang_source, lang_target, no_gpu, site, i_own_rights)`.
+- Default `--format pdf` (UX finale: utente vuole leggere subito).
+- `--i-own-rights` obbligatorio (stesso guardrail di `fetch`); senza, exit 1 con messaggio diretto.
+- Errori discriminati per chiarezza utente: `FetchError → exit 1`, `NotImplementedError → exit 2`, errore traduzione → exit 1 + path fetch dir.
+
+**Test** (`tests/test_cli_run.py`, 7 nuovi):
+- `test_run_url_without_rights_flag_exits_one` — guardrail.
+- `test_run_unsupported_url_exits_one` — registry rifiuta URL ignoto, MITR non parte.
+- `test_run_orchestrates_fetch_then_local_pipeline` — fake scraper + run_local stub: verifica che `image_dir` sia `out/.msrt-fetch/fakemd/fake-series/42/`, che metadata e `fetch_metadata` siano propagati a `run_local`, niente staging dir residua.
+- `test_run_aborts_when_fetch_fails` — `FetchError` interrompe prima di `run_local`.
+- `test_run_keeps_fetch_dir_when_translation_fails` — fetch ok + `run_local` raise → exit 1 ma fetch dir intatta per ri-tentare.
+- `test_run_cleans_pending_dir_when_fetch_raises_not_implemented` — staging dir viene cancellata su exit 2.
+- `test_run_help_lists_url_orchestration_flags` — smoke help.
+
+I test usano un `_FakeMangaDexLikeScraper` registrato via `monkeypatch.setattr("msrt.cli.scraper_for_url", …)` e `monkeypatch.setattr("msrt.cli.run_local", stub)` per controllare il flow senza toccare rete o MITR.
+
+**Quality gate (2026-04-29)**: ruff/format/mypy strict clean, **144 test pass** (era 137, +7 nuovi).
+
 ### v0.2 — URL pipeline foundation + MangaDex pubblico
 
 Obiettivo: introdurre `msrt fetch <URL>` e `msrt run <URL>` con una pipeline URL reale, mantenendo MangaDex come adapter pubblico e testabile via fixture anche quando la rete MangaDex sulla macchina utente è bloccata.
@@ -533,8 +569,8 @@ Obiettivo: introdurre `msrt fetch <URL>` e `msrt run <URL>` con una pipeline URL
 - [x] `src/msrt/scrape/downloader.py`: async httpx, rate-limit per host, retry con backoff, dedup sha256, cache/resume in `~/.cache/msrt/<host>/<series>/<chapter>/`. (v0.2a — manca `cache/resume` per host, da aggiungere in v0.2b)
 - [x] CLI `msrt fetch <URL>`: fetch → cartella locale. (v0.2a)
 - [x] Adapter MangaDex ufficiale: resolver per URL `title`/`chapter`/ID, feed capitoli, At-Home endpoint, gestione `externalUrl` con skip + warning. (v0.2b)
-- [ ] CLI `msrt run <URL>`: fetch + `run-local` esistente in un comando. (v0.2c)
-- [ ] RunManifest per URL: `input.type=url`, source URL, strategy usata (`mangadex-api`), cache dir, errori fetch. (v0.2c)
+- [x] CLI `msrt run <URL>`: fetch + `run-local` esistente in un comando. (v0.2c)
+- [x] RunManifest per URL: `input.type=url`, source URL, strategy usata (`mangadex-api`), cache dir, errori fetch. (v0.2c)
 - [x] Test fixture JSON MangaDex; niente rete in CI. (v0.2b)
 
 ### v0.2b — MangaDex API completo (2026-04-29)

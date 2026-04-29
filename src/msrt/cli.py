@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
@@ -21,15 +23,16 @@ from rich.progress import (
 from msrt import __version__
 from msrt.config import Settings
 from msrt.doctor import DoctorCheck, run_doctor
-from msrt.models import TranslationJob
+from msrt.models import ManifestFetch, TranslationJob
 from msrt.pipeline import (
     PhaseCallback,
     collect_local_chapter,
     package_outputs,
     run_local,
+    slugify,
     translate_only,
 )
-from msrt.scrape.base import FetchError
+from msrt.scrape.base import FetchError, FetchResult
 from msrt.scrape.registry import scraper_for_url
 from msrt.server import (
     LiteLLMUnavailableError,
@@ -348,6 +351,158 @@ def fetch(
         f"{result.output_dir} --series {result.series!r} "
         f"--chapter {result.chapter_number!r} --format pdf[/bold]"
     )
+
+
+@app.command()
+def run(
+    url: Annotated[str, typer.Argument(help="URL del capitolo manga da tradurre.")],
+    out: Annotated[
+        Path,
+        typer.Option("--out", help="Cartella output finale (PDF/CBZ + manifest)."),
+    ] = Path("out"),
+    format: Annotated[str, typer.Option("--format", help="pdf|cbz|both")] = "pdf",
+    model: Annotated[str | None, typer.Option("--model", help="Default: MSRT_MODEL.")] = None,
+    font_path: Annotated[Path | None, typer.Option("--font-path")] = None,
+    glossary: Annotated[
+        Path | None,
+        typer.Option(
+            "--glossary",
+            help="Override del glossario. Se omesso uso quello in cache (auto-build).",
+        ),
+    ] = None,
+    auto_glossary: Annotated[
+        bool,
+        typer.Option(
+            "--auto-glossary/--no-auto-glossary",
+            help="Genera/usa automaticamente un glossario di serie via LLM.",
+        ),
+    ] = True,
+    pre_dict: Annotated[
+        Path | None,
+        typer.Option("--pre-dict", help="File TSV correzioni OCR (passato a MITR --pre-dict)."),
+    ] = None,
+    lang_source: Annotated[str, typer.Option("--lang-source")] = "en",
+    lang_target: Annotated[str, typer.Option("--lang-target")] = "it",
+    no_gpu: Annotated[bool, typer.Option("--no-gpu")] = False,
+    site: Annotated[
+        str,
+        typer.Option(
+            "--site",
+            help="Adapter da usare. 'auto' (default) sceglie in base al dominio.",
+        ),
+    ] = "auto",
+    i_own_rights: Annotated[
+        bool,
+        typer.Option(
+            "--i-own-rights",
+            help=(
+                "Conferma esplicita che hai il diritto di scaricare il contenuto. "
+                "Guardrail UX, non tutela legale: la responsabilità resta tua."
+            ),
+        ),
+    ] = False,
+) -> None:
+    """Scarica + traduce un capitolo da URL in un solo comando.
+
+    È solo orchestrazione: ``fetch`` produce le pagine in
+    ``out/.msrt-fetch/<site>/<series>/<chapter>/`` e ``run-local``
+    prosegue da lì verso ``out/<series>-<chapter>-<lang>.{pdf,cbz}``.
+    Il fetch resta su disco anche in caso di errore di traduzione, così
+    si può riprendere/debuggare senza riscaricare le pagine.
+    """
+
+    if not i_own_rights:
+        console.print(
+            "[red]Errore:[/red] msrt run scarica contenuti da Internet. "
+            "Aggiungi [bold]--i-own-rights[/bold] solo se hai il diritto di "
+            "scaricare il contenuto (es. tuo, pubblico dominio, o licenza che "
+            "lo consente). È un guardrail UX, non tutela legale: la responsabilità "
+            "resta tua."
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        scraper = scraper_for_url(url, site=site)
+    except FetchError as exc:
+        console.print(f"[red]Errore:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    fetch_root = out / ".msrt-fetch" / scraper.name
+    pending_dir = fetch_root / f"_pending-{uuid.uuid4().hex[:8]}"
+    console.print(f"Adapter [bold]{scraper.name}[/bold]: scarico in [dim]{pending_dir}[/dim]…")
+
+    try:
+        fetch_result: FetchResult = asyncio.run(scraper.fetch(url, pending_dir))
+    except NotImplementedError as exc:
+        console.print(f"[yellow]Adapter '{scraper.name}' non implementato:[/yellow] {exc}")
+        shutil.rmtree(pending_dir, ignore_errors=True)
+        raise typer.Exit(code=2) from exc
+    except FetchError as exc:
+        console.print(f"[red]Errore fetch:[/red] {exc}")
+        shutil.rmtree(pending_dir, ignore_errors=True)
+        raise typer.Exit(code=1) from exc
+
+    # Promote pending → canonical fetch dir based on resolved metadata.
+    final_fetch_dir = (
+        fetch_root / slugify(fetch_result.series) / slugify(fetch_result.chapter_number)
+    )
+    if final_fetch_dir.exists():
+        shutil.rmtree(final_fetch_dir)
+    final_fetch_dir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(pending_dir), str(final_fetch_dir))
+    console.print(
+        f"[green]✓ fetch[/green] {len(fetch_result.pages)} pagine in [bold]{final_fetch_dir}[/bold]\n"
+        f"[dim]Series:[/dim] {fetch_result.series}  "
+        f"[dim]Chapter:[/dim] {fetch_result.chapter_number}"
+    )
+    for warn in fetch_result.warnings:
+        console.print(f"[yellow]warn:[/yellow] {warn}")
+
+    fetch_meta = ManifestFetch(
+        strategy=fetch_result.strategy,
+        source_url=fetch_result.source_url,
+        output_dir=str(final_fetch_dir),
+        page_count=len(fetch_result.pages),
+        warnings=list(fetch_result.warnings),
+    )
+
+    job = TranslationJob(
+        model=_effective_model(model),
+        font_path=font_path,
+        glossary_path=glossary,
+        auto_glossary=auto_glossary,
+        pre_dict_path=pre_dict,
+        use_gpu=not no_gpu,
+    )
+    with _make_progress() as progress:
+        task_id = progress.add_task("Avvio…", total=3)
+        on_phase = _phase_callback(progress, task_id)
+        on_log = _log_callback(progress)
+        try:
+            manifest = run_local(
+                final_fetch_dir,
+                out,
+                series=fetch_result.series,
+                chapter_number=fetch_result.chapter_number,
+                chapter_title=fetch_result.chapter_title,
+                lang_source=lang_source,
+                lang_target=lang_target,
+                fmt=format,
+                job=job,
+                on_phase=on_phase,
+                on_log=on_log,
+                input_type="url",
+                input_url=url,
+                fetch_metadata=fetch_meta,
+            )
+        except Exception as exc:
+            console.print(f"[red]Errore run-local:[/red] {exc}")
+            console.print(f"[dim]Le pagine fetch restano in {final_fetch_dir} per debug.[/dim]")
+            raise typer.Exit(code=1) from exc
+
+    console.print("[green]Completato[/green]")
+    for output_file in manifest.output_files:
+        console.print(output_file)
 
 
 @app.command()

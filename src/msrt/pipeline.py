@@ -7,6 +7,7 @@ import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 from PIL import Image
 
@@ -15,6 +16,7 @@ from msrt.config import Settings, resolve_model_alias
 from msrt.models import (
     Chapter,
     ManifestEngine,
+    ManifestFetch,
     ManifestInput,
     ManifestModel,
     Page,
@@ -111,12 +113,28 @@ def build_manifest(
     input_path: Path,
     job: TranslationJob,
     engine_binary: str | None,
+    input_type: Literal["local", "url"] = "local",
+    input_url: str | None = None,
+    fetch_metadata: ManifestFetch | None = None,
 ) -> RunManifest:
+    """Build the canonical ``RunManifest`` for one pipeline invocation.
+
+    ``input_type``/``input_url``/``fetch_metadata`` are populated only by
+    ``msrt run`` (URL pipeline). ``msrt run-local`` leaves them at their
+    defaults so the manifest schema reflects "this run came from a
+    user-provided folder".
+    """
+
     provider, resolved_model, _ = resolve_model_alias(job.model)
     return RunManifest(
         msrt_version=__version__,
         command=command,
-        input=ManifestInput(type="local", path=str(input_path), page_count=len(chapter.pages)),
+        input=ManifestInput(
+            type=input_type,
+            path=str(input_path) if input_type == "local" else None,
+            url=input_url,
+            page_count=len(chapter.pages),
+        ),
         page_order=[page.local_path.name for page in chapter.pages],
         page_hashes={page.local_path.name: page.sha256 for page in chapter.pages},
         model=ManifestModel(alias=job.model, resolved_id=resolved_model, provider=provider),
@@ -129,6 +147,7 @@ def build_manifest(
             "language_source": chapter.language_source,
             "language_target": chapter.language_target,
         },
+        fetch=fetch_metadata,
     )
 
 
@@ -382,6 +401,9 @@ def run_local(
     engine_factory: EngineFactory | None = None,
     on_phase: PhaseCallback | None = None,
     on_log: LogCallback | None = None,
+    input_type: Literal["local", "url"] = "local",
+    input_url: str | None = None,
+    fetch_metadata: ManifestFetch | None = None,
 ) -> RunManifest:
     factory = engine_factory or _default_engine_factory
     phase = on_phase or _noop_phase
@@ -416,6 +438,9 @@ def run_local(
         input_path=image_dir,
         job=job,
         engine_binary=settings.mitr_bin_path,
+        input_type=input_type,
+        input_url=input_url,
+        fetch_metadata=fetch_metadata,
     )
 
     phase("translate")
@@ -477,6 +502,13 @@ def _chapter_slug(chapter: Chapter) -> str:
 
 
 def _slugify(value: str) -> str:
+    return slugify(value)
+
+
+def slugify(value: str) -> str:
+    """Public path-safe slugifier. Used by ``msrt run`` to build the
+    fetch staging path under ``out/.msrt-fetch/<site>/<series>/<chapter>``."""
+
     slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
     return slug.strip("-") or "untitled"
 
