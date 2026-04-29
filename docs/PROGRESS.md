@@ -512,10 +512,50 @@ Obiettivo: introdurre `msrt fetch <URL>` e `msrt run <URL>` con una pipeline URL
 - [x] `src/msrt/scrape/registry.py`: routing URL → adapter (`mangadex`, fallback `generic`, futuro `mangafire`) con errore chiaro se nessun adapter supporta il dominio. (v0.2a)
 - [x] `src/msrt/scrape/downloader.py`: async httpx, rate-limit per host, retry con backoff, dedup sha256, cache/resume in `~/.cache/msrt/<host>/<series>/<chapter>/`. (v0.2a — manca `cache/resume` per host, da aggiungere in v0.2b)
 - [x] CLI `msrt fetch <URL>`: fetch → cartella locale. (v0.2a)
-- [ ] Adapter MangaDex ufficiale: resolver per URL `title`/`chapter`/ID, feed capitoli, At-Home endpoint, gestione `externalUrl` con skip + warning. (v0.2b)
+- [x] Adapter MangaDex ufficiale: resolver per URL `title`/`chapter`/ID, feed capitoli, At-Home endpoint, gestione `externalUrl` con skip + warning. (v0.2b)
 - [ ] CLI `msrt run <URL>`: fetch + `run-local` esistente in un comando. (v0.2c)
-- [ ] RunManifest per URL: `input.type=url`, source URL, strategy usata (`mangadex-api`), cache dir, errori fetch. (v0.2b/c)
-- [ ] Test fixture JSON MangaDex; niente rete in CI. (v0.2b)
+- [ ] RunManifest per URL: `input.type=url`, source URL, strategy usata (`mangadex-api`), cache dir, errori fetch. (v0.2c)
+- [x] Test fixture JSON MangaDex; niente rete in CI. (v0.2b)
+
+### v0.2b — MangaDex API completo (2026-04-29)
+
+`MangaDexScraper.fetch()` ora orchestra l'API MangaDex end-to-end. Tutto è esercitato contro fixture JSON via `httpx.MockTransport` — zero rete in CI.
+
+**Flusso implementato**:
+1. Parse URL: `^/chapter/<UUID>$` o `^/title/<UUID>(/...)?$` (case-insensitive). Niente match su path che contiene UUID per caso (chiuso in v0.2a.1).
+2. Per `/title/<UUID>`: `GET /manga/{id}/feed?translatedLanguage[]=en&order[chapter]=asc&limit=100` → primo entry senza `externalUrl`. Se il feed in inglese è vuoto, retry senza filtro lingua per non fallire su release prima dell'inglese.
+3. `GET /chapter/{id}` → `attributes.chapter`, `attributes.title`, `attributes.translatedLanguage`, relazione `manga`. Se `externalUrl` ≠ null → `FetchError("esterno")` chiaro: MangaDex non ospita le immagini.
+4. `GET /manga/{manga_id}` → titolo serie. Preferisce `attributes.title.en`; fallback alla prima lingua disponibile (alfabetico per determinismo). Default `"Untitled Series"` se nessun titolo è popolato.
+5. `GET /at-home/server/{chapter_id}` → `baseUrl`, `chapter.hash`, `chapter.data` (lista filename ordinata). URL pagina = `{baseUrl}/data/{hash}/{filename}` (full quality, non `dataSaver`).
+6. `download_pages(jobs, min_delay_per_host=0.2)` per rispettare la guideline pubblica MangaDex (≤5 req/s). Magic-byte validator già attivo dal v0.2a.2 protegge da soft-fail page con header `image/*`.
+7. `find_duplicate_pages` aggiunto a `warnings`; lingua diversa da `en` aggiunge un warning informativo (no errore).
+8. Ritorna `FetchResult(strategy="mangadex-api", series, chapter_number, chapter_title, source_url, pages, warnings, output_dir)`.
+
+**Test injection design**: `MangaDexScraper(transport=…)` accetta un transport opzionale che viene usato sia per le chiamate API sia (passato through) a `download_pages`. La signature `fetch(url, output_dir)` resta invariata rispetto alla ABC, niente kwargs di test che leakano in produzione.
+
+**Fixture JSON** (`tests/fixtures/mangadex/`):
+- `chapter_normal.json` — chapter 44 di "Wistoria", inglese, no externalUrl, 3 pagine atteso
+- `chapter_external.json` — stessa serie ma con `externalUrl` valorizzato
+- `manga_wistoria.json` — manga entity con `title.en` + `title.ja`
+- `manga_feed.json` — feed con 2 capitoli inglesi
+- `manga_feed_empty.json` — feed vuoto, per testare il fallback senza filtro lingua
+- `at_home.json` — At-Home response con baseUrl + hash + 3 filename
+
+**10 nuovi test** (`tests/test_scrape_mangadex_fetch.py`):
+- `test_fetch_chapter_url_returns_full_result` — fetch completo end-to-end, verifica nomi file `001.png/002.png/003.png`, URL costruiti correttamente con base+hash+filename, warnings vuoti
+- `test_fetch_title_url_resolves_first_chapter` — title URL → feed → primo capitolo
+- `test_fetch_title_url_falls_back_when_english_feed_empty` — fallback senza filtro lingua quando feed `en` vuoto
+- `test_fetch_title_url_raises_when_no_chapters` — entrambi i feed vuoti → FetchError chiaro
+- `test_fetch_external_url_chapter_raises_with_clear_message` — externalUrl → FetchError con hint
+- `test_fetch_raises_when_at_home_has_no_pages` — At-Home senza filename → FetchError
+- `test_fetch_raises_on_api_error_envelope` — `result != "ok"` → FetchError
+- `test_fetch_warns_on_non_english_chapter` — capitolo `es` produce warning ma non fallisce
+- `test_fetch_propagates_download_failure_as_fetch_error` — DownloadError → FetchError per uniformità del contratto
+- `test_pick_series_title_falls_back_to_japanese_when_english_missing` — title.en mancante → primo non-vuoto
+
+Aggiornato `test_scrape_mangadex.py`: rimosso il vecchio test "skeleton raises NotImplementedError" (obsoleto). Rimosso `test_cli_fetch_mangadex_skeleton_exits_two` da `test_smoke.py` per la stessa ragione (ora la fetch è reale e farebbe network reale dal CLI smoke test).
+
+**Quality gate (2026-04-29)**: ruff/format/mypy strict clean, **133 test pass** (era 125, +8 nuovi netti — 10 added, 2 removed obsoleti).
 
 ### v0.3 — MangaFire + fallback browser capture automatico
 

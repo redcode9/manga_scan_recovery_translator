@@ -68,18 +68,6 @@ def test_cli_fetch_unsupported_url_exits_one(tmp_path: Path, monkeypatch) -> Non
     assert "Nessun adapter supporta" in result.stdout
 
 
-def test_cli_fetch_mangadex_skeleton_exits_two(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """The MangaDex adapter recognises the URL but returns NotImplemented
-    in v0.2a — the CLI should exit with code 2 and a clear hint, not 1."""
-
-    monkeypatch.setenv("HOME", str(tmp_path))
-    runner = CliRunner()
-    url = "https://mangadex.org/chapter/12345678-1234-1234-1234-123456789012"
-    result = runner.invoke(app, ["fetch", url, "--out", str(tmp_path / "fetch"), "--i-own-rights"])
-    assert result.exit_code == 2
-    assert "v0.2b" in result.stdout
-
-
 def test_cli_translate_help_exposes_pre_dict() -> None:
     """``--pre-dict`` must be available on the ``translate`` command, not
     only on ``run-local`` — otherwise users who skip packaging cannot

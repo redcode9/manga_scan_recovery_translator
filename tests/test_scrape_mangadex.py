@@ -49,14 +49,6 @@ def test_mangadex_matches_uppercase_uuid() -> None:
     assert MangaDexScraper().matches(url)
 
 
-def test_mangadex_fetch_skeleton_raises_not_implemented(tmp_path: Path) -> None:
-    scraper = MangaDexScraper()
-    url = "https://mangadex.org/chapter/12345678-1234-1234-1234-123456789012"
-
-    with pytest.raises(NotImplementedError, match=r"v0\.2b"):
-        _run(scraper.fetch(url, tmp_path))
-
-
 def test_mangadex_fetch_rejects_invalid_url(tmp_path: Path) -> None:
     scraper = MangaDexScraper()
 
