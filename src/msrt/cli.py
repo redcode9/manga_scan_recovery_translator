@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
@@ -28,6 +29,8 @@ from msrt.pipeline import (
     run_local,
     translate_only,
 )
+from msrt.scrape.base import FetchError
+from msrt.scrape.registry import scraper_for_url
 from msrt.server import (
     LiteLLMUnavailableError,
     ServerStatus,
@@ -272,6 +275,79 @@ def run_local_command(
     console.print("[green]Completato[/green]")
     for output_file in manifest.output_files:
         console.print(output_file)
+
+
+@app.command()
+def fetch(
+    url: Annotated[str, typer.Argument(help="URL del capitolo manga da scaricare.")],
+    out: Annotated[
+        Path,
+        typer.Option("--out", help="Cartella di output. Verrà creata se non esiste."),
+    ] = Path("out") / "fetch",
+    site: Annotated[
+        str,
+        typer.Option(
+            "--site",
+            help="Adapter da usare. 'auto' (default) sceglie in base al dominio.",
+        ),
+    ] = "auto",
+    i_own_rights: Annotated[
+        bool,
+        typer.Option(
+            "--i-own-rights",
+            help=(
+                "Conferma esplicita che hai il diritto di scaricare il contenuto. "
+                "Guardrail UX, non tutela legale: la responsabilità resta tua."
+            ),
+        ),
+    ] = False,
+) -> None:
+    """Scarica un capitolo da URL in una cartella locale di immagini.
+
+    Non chiama MITR né LLM — produce solo la cartella di pagine, pronta
+    per essere passata a ``msrt run-local``. Lo step ``fetch + run-local``
+    sarà unificato in ``msrt run`` dalla v0.2c.
+    """
+
+    if not i_own_rights:
+        console.print(
+            "[red]Errore:[/red] msrt fetch scarica contenuti da Internet. "
+            "Aggiungi [bold]--i-own-rights[/bold] solo se hai il diritto di "
+            "scaricare il contenuto (es. tuo, pubblico dominio, o licenza che "
+            "lo consente). È un guardrail UX, non tutela legale: la responsabilità "
+            "resta tua."
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        scraper = scraper_for_url(url, site=site)
+    except FetchError as exc:
+        console.print(f"[red]Errore:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    console.print(f"Adapter scelto: [bold]{scraper.name}[/bold]. Scarico in [bold]{out}[/bold]…")
+    try:
+        result = asyncio.run(scraper.fetch(url, out))
+    except NotImplementedError as exc:
+        console.print(f"[yellow]Adapter '{scraper.name}' non ancora implementato:[/yellow] {exc}")
+        raise typer.Exit(code=2) from exc
+    except FetchError as exc:
+        console.print(f"[red]Errore fetch:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    for warn in result.warnings:
+        console.print(f"[yellow]warn:[/yellow] {warn}")
+    console.print(
+        f"[green]✓[/green] {len(result.pages)} pagine scaricate in {result.output_dir}\n"
+        f"[dim]Series:[/dim] {result.series}\n"
+        f"[dim]Chapter:[/dim] {result.chapter_number}"
+        + (f"  [dim]Title:[/dim] {result.chapter_title}" if result.chapter_title else "")
+    )
+    console.print(
+        "\nProssimo passo: [bold]msrt run-local "
+        f"{result.output_dir} --series {result.series!r} "
+        f"--chapter {result.chapter_number!r} --format pdf[/bold]"
+    )
 
 
 @app.command()

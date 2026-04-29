@@ -441,17 +441,81 @@ Code review post v0.1.aa ha trovato 5 punti, tutti chiusi.
 
 **Ottimizzazioni candidate per v0.6 / future**: `HttpEngine` (server MITR persistente, salta model loading ad ogni run); batching multi-pagina al LLM; `--attempts`/`--ignore-errors` di MITR esposti via CLI per non bloccare l'intero run su una pagina problematica.
 
+### v0.2a — URL pipeline foundation (2026-04-29) ✅
+
+Code review interno ha suggerito di partire dal "binario" comune URL → cartella locale **prima** di scrivere qualsiasi adapter site-specifico, così MangaDex / MangaFire / generic / browser-capture diventano strategie diverse dello stesso flusso. Implementato il bridge URL → folder; `msrt fetch` non traduce, produce solo le pagine, pronte per `msrt run-local`.
+
+**Moduli creati**:
+- `src/msrt/scrape/base.py` — `ChapterScraper` ABC + dataclasses `FetchedPage`, `FetchResult`, `FetchError`. Contratto: `matches(url) -> bool` + `async fetch(url, output_dir) -> FetchResult`. Naming on-disk obbligatorio `001.png`/`002.jpg` per natural sort downstream.
+- `src/msrt/scrape/registry.py` — registry module-level + decorator `@register`. `scraper_for_url(url, site="auto")` con import lazy degli adapter (evita circular). Errori puliti con lista degli adapter registrati quando il match fallisce.
+- `src/msrt/scrape/downloader.py` — `download_pages` async (`httpx.AsyncClient`), concurrency soft-limit con `asyncio.Semaphore`, retry esponenziale 1/2/4/8s su {408,425,429,500,502,503,504}, naming `001.png` da Content-Type → URL ext → `.bin` fallback. Helper `find_duplicate_pages` (warning per pagine con sha256 identico). Parametro `transport` per `httpx.MockTransport` nei test → zero rete in CI.
+- `src/msrt/scrape/adapters/mangadex.py` — skeleton: riconosce `mangadex.org/{chapter,title}/<UUID>` e varianti `www`/`canary.mangadex.dev`. `fetch()` solleva `NotImplementedError("…v0.2b")` con messaggio chiaro. Auto-registrazione via `@register` al primo import del package adapters.
+- `src/msrt/cli.py` — nuovo comando `msrt fetch <URL> [--out DIR] [--site auto|mangadex]`. Risolve adapter, esegue `asyncio.run(scraper.fetch(...))`, stampa percorso + warnings, suggerisce il prossimo passo (`msrt run-local …`). Exit codes: 0 success, 1 errore generico, 2 adapter not-yet-implemented.
+
+**Test (16 nuovi, totale 116 pass)**:
+- `tests/test_scrape_registry.py` — auto routing, `--site` override, FetchError per URL/site sconosciuto, idempotenza `@register`.
+- `tests/test_scrape_downloader.py` — 8 test contro `httpx.MockTransport`: naming, fallback Content-Type/URL/`.bin`, retry su 429 con backoff istantaneo, fail su 404 non-retryable, ordering stabile, dedup, input vuoto.
+- `tests/test_scrape_mangadex.py` — match parametrizzati su URL valide e fuori dominio; skeleton solleva NotImplementedError; URL malformata → FetchError.
+- `tests/test_smoke.py` — fetch help, exit 1 su URL non supportato, exit 2 su skeleton MangaDex.
+
+**Quality gate (2026-04-29)**: ruff/format/mypy strict clean, **116 test pass** (era 91).
+
+### v0.2a.1 — Code review hardening (2026-04-29)
+
+Code review post v0.2a ha trovato 6 punti, tutti chiusi.
+
+**Media — HTTP 200 con body non-immagine veniva accettato come pagina valida**: un sito che restituisce HTML "you must log in" con status 200 produceva un finto `001.bin` su disco e il fetch risultava success. Run-local poi non trovava immagini valide e l'utente non capiva dove fosse il problema.
+
+Fix: `_validated_extension()` valida l'**ordine giusto** — magic bytes (PNG/JPEG/WebP/GIF/AVIF authoritativi) → Content-Type `image/*` mappato → URL extension solo se Content-Type è `image/*`. Tutto il resto solleva `DownloadError("non immagine, ...")` non-retryable, con snippet del body per debug. Test: rifiuto su HTML 200, su body vuoto con Content-Type image, accettazione di vere PNG/JPG/WebP prodotte da Pillow.
+
+**Media — concurrency ≠ rate limit per host**: il "rate limit" precedente era solo concurrency (max N download in flight). Per MangaDex (che chiede ≤5 req/s) e per il posizionamento pubblico del progetto, serviva un limite reale.
+
+Fix: nuovo parametro `min_delay_per_host` su `download_pages`. Implementazione `_HostRateLimiter` con `asyncio.Lock` per host (richieste a host A non bloccano richieste a host B), `loop.time()` per timestamp dell'ultima richiesta, sleep prima di ogni acquire se la quota non è ancora trascorsa. Default 0 → no-op back-compat. Test: 3 richieste sullo stesso host con `min_delay_per_host=0.05` hanno deltas ≥ 0.04s; 3 host diversi non si bloccano a vicenda.
+
+**Media — output parziale su failure**: `asyncio.gather()` può raise dopo che alcune task hanno già scritto file. Senza un fetch atomico, l'utente trovava `out/` con metà capitolo dentro e nessuna chiara indicazione di errore.
+
+Fix: download in `output_dir/.staging/`, promozione atomica (rename file → `output_dir/`) **solo se ogni pagina ha avuto successo**. Su fallimento, lo staging dir resta per ispezione ma `output_dir` non viene mai polluta. Test: failure su pagina 2 → no file in canonical output, error sollevato.
+
+**Bassa/Media — `msrt fetch` senza guardrail diritti**: `msrt run` avrà `--i-own-rights` ma `fetch` no, asimmetria. Allineato.
+
+Fix: `--i-own-rights` aggiunto a `fetch`. Senza il flag, errore chiaro che ricorda all'utente "guardrail UX, non tutela legale; la responsabilità resta tua". Test: fetch senza flag → exit 1; con flag + URL non supportato → exit 1; con flag + MangaDex skeleton → exit 2.
+
+**Bassa — registry test pollution**: `test_register_decorator_is_idempotent` registrava `Dummy` nel registry globale `_REGISTRY` senza ripristinarlo. Oggi non rompe; potrebbe rendere flaky qualsiasi test futuro che inserisce dummy adapters.
+
+Fix: `tests/conftest.py` con fixture autouse `_isolate_scrape_registry` che snapshota e ripristina `_REGISTRY` per ogni test.
+
+**Bassa — regex MangaDex troppo permissiva**: `_UUID_RE.search(path)` matchava qualsiasi path che contenesse un UUID, inclusi `/follows/<uuid>` o tracking parameters. Inoltre case-sensitive, mentre i link copiati possono avere UUID maiuscolo.
+
+Fix: `_CHAPTER_OR_TITLE_RE` ancorata su `^/(?:chapter|title)/<UUID>(?:/...)?$`, `re.IGNORECASE`. Test: rifiuto di `/follows/<uuid>` e `/random/path/<uuid>`; accettazione di UUID uppercase.
+
+**Quality gate (2026-04-29)**: ruff/format/mypy strict clean, **123 test pass** (era 116, +7 nuovi su validation, rate-limit, atomic, regex tightening, rights flag).
+
+### v0.2a.2 — Magic-bytes only validation (2026-04-29)
+
+Code review post v0.2a.1 ha trovato un buco residuo nella validazione: `_validated_extension("image/png", url, b"<html>...")` ritornava ancora `.png`. Caso d'uso reale: server CDN che serve una pagina di errore/login con header `image/png`. Il file di v0.2a.1 era già rifiutato per HTML con Content-Type `text/html`, ma non quando il server *mente* sull'header. Il bug si era spostato di livello senza sparire.
+
+Fix: `_validated_extension` ora **richiede magic bytes** validi e basta. Content-Type e URL extension sono ignorati (mantenuti nei parametri solo per stabilità API). Se un format esotico senza magic byte signature emerge in futuro (image/svg+xml, image/x-icon), va aggiunto esplicitamente in `_detect_image_magic`.
+
+Eliminate anche le costanti `_CONTENT_TYPE_TO_EXT` / `_KNOWN_IMAGE_EXTS`, ora morte. Il path attraverso il validator è ora una sola riga: `body → magic detection → ext or None`.
+
+**Test di regressione**:
+- `test_download_pages_rejects_html_body_with_image_content_type` — header `image/png` + body HTML → `DownloadError("non immagine")`, niente file scritto
+- `test_download_pages_rejects_json_body_with_image_content_type` — header `image/jpeg` + JSON envelope di errore → idem
+
+**Quality gate (2026-04-29)**: ruff/format/mypy strict clean, **125 test pass** (era 123, +2 nuovi).
+
 ### v0.2 — URL pipeline foundation + MangaDex pubblico
 
 Obiettivo: introdurre `msrt fetch <URL>` e `msrt run <URL>` con una pipeline URL reale, mantenendo MangaDex come adapter pubblico e testabile via fixture anche quando la rete MangaDex sulla macchina utente è bloccata.
 
-- [ ] `src/msrt/scrape/base.py`: `ChapterScraper` ABC + modelli/risultati fetch separati dal dominio `Chapter` usato dalla pipeline locale.
-- [ ] `src/msrt/scrape/registry.py`: routing URL → adapter (`mangadex`, fallback `generic`, futuro `mangafire`) con errore chiaro se nessun adapter supporta il dominio.
-- [ ] `src/msrt/scrape/downloader.py`: async httpx, rate-limit per host, retry con backoff, dedup sha256, cache/resume in `~/.cache/msrt/<host>/<series>/<chapter>/`.
-- [ ] Adapter MangaDex ufficiale: resolver per URL `title`/`chapter`/ID, feed capitoli, At-Home endpoint, gestione `externalUrl` con skip + warning.
-- [ ] CLI `msrt fetch <URL>` e `msrt run <URL>`: fetch → cartella locale → `run-local` esistente.
-- [ ] RunManifest per URL: `input.type=url`, source URL, strategy usata (`mangadex-api`), cache dir, errori fetch.
-- [ ] Test fixture JSON MangaDex; niente rete in CI.
+- [x] `src/msrt/scrape/base.py`: `ChapterScraper` ABC + modelli/risultati fetch separati dal dominio `Chapter` usato dalla pipeline locale. (v0.2a)
+- [x] `src/msrt/scrape/registry.py`: routing URL → adapter (`mangadex`, fallback `generic`, futuro `mangafire`) con errore chiaro se nessun adapter supporta il dominio. (v0.2a)
+- [x] `src/msrt/scrape/downloader.py`: async httpx, rate-limit per host, retry con backoff, dedup sha256, cache/resume in `~/.cache/msrt/<host>/<series>/<chapter>/`. (v0.2a — manca `cache/resume` per host, da aggiungere in v0.2b)
+- [x] CLI `msrt fetch <URL>`: fetch → cartella locale. (v0.2a)
+- [ ] Adapter MangaDex ufficiale: resolver per URL `title`/`chapter`/ID, feed capitoli, At-Home endpoint, gestione `externalUrl` con skip + warning. (v0.2b)
+- [ ] CLI `msrt run <URL>`: fetch + `run-local` esistente in un comando. (v0.2c)
+- [ ] RunManifest per URL: `input.type=url`, source URL, strategy usata (`mangadex-api`), cache dir, errori fetch. (v0.2b/c)
+- [ ] Test fixture JSON MangaDex; niente rete in CI. (v0.2b)
 
 ### v0.3 — MangaFire + fallback browser capture automatico
 

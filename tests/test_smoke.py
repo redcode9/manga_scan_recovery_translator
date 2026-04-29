@@ -30,6 +30,56 @@ def test_cli_doctor_placeholder() -> None:
     assert "python" in result.stdout.lower()
 
 
+def test_cli_fetch_help_lists_options() -> None:
+    runner = CliRunner()
+    result = runner.invoke(app, ["fetch", "--help"])
+    assert result.exit_code == 0
+    assert "--site" in result.stdout
+    assert "--out" in result.stdout
+
+
+def test_cli_fetch_without_rights_flag_exits_one(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """``msrt fetch`` is a download-from-Internet operation — by default
+    it refuses without ``--i-own-rights``. UX guardrail, not legal
+    cover, but it makes the user pause."""
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runner = CliRunner()
+    url = "https://mangadex.org/chapter/12345678-1234-1234-1234-123456789012"
+    result = runner.invoke(app, ["fetch", url, "--out", str(tmp_path / "fetch")])
+    assert result.exit_code == 1
+    assert "--i-own-rights" in result.stdout
+
+
+def test_cli_fetch_unsupported_url_exits_one(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "fetch",
+            "https://example.com/random",
+            "--out",
+            str(tmp_path / "fetch"),
+            "--i-own-rights",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Nessun adapter supporta" in result.stdout
+
+
+def test_cli_fetch_mangadex_skeleton_exits_two(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The MangaDex adapter recognises the URL but returns NotImplemented
+    in v0.2a — the CLI should exit with code 2 and a clear hint, not 1."""
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runner = CliRunner()
+    url = "https://mangadex.org/chapter/12345678-1234-1234-1234-123456789012"
+    result = runner.invoke(app, ["fetch", url, "--out", str(tmp_path / "fetch"), "--i-own-rights"])
+    assert result.exit_code == 2
+    assert "v0.2b" in result.stdout
+
+
 def test_cli_translate_help_exposes_pre_dict() -> None:
     """``--pre-dict`` must be available on the ``translate`` command, not
     only on ``run-local`` — otherwise users who skip packaging cannot
