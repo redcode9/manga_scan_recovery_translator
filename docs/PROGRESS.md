@@ -32,17 +32,27 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 
 ## Task
 
-### v0.0 — Bootstrap repository
-- [x] **2026-04-29** `git init` + struttura cartelle (`docs/`, `configs/`, `src/msrt/{translate,package,scrape,utils}`, `tests/{unit,integration,fixtures}`, `scripts/`, `.github/workflows/`)
-- [ ] `pyproject.toml` con uv + hatchling, deps minime, scripts entry, tool config (ruff/mypy/pytest)
-- [ ] `LICENSE` (MIT) e `NOTICE` (rimando GPL upstream)
-- [ ] `README.md` con disclaimer prudente
-- [ ] `docs/PROGRESS.md` (questo file)
-- [ ] `docs/UNOFFICIAL_ADAPTERS.md` e `docs/PROVIDER_NOTES.md`
-- [ ] `.env.example` e `.gitignore`
-- [ ] CI minima `.github/workflows/ci.yml` (lint + scheletro test, no rete)
-- [ ] `scripts/bootstrap.sh`
-- [ ] Primo commit `chore: bootstrap repository (v0.0)`
+### v0.0 — Bootstrap repository ✅ COMPLETATO 2026-04-29
+- [x] `git init` + struttura cartelle (`docs/`, `configs/`, `src/msrt/{translate,package,scrape,utils}`, `tests/{unit,integration,fixtures}`, `scripts/`, `.github/workflows/`)
+- [x] `pyproject.toml` con uv + hatchling, deps minime (typer, pydantic v2, pydantic-settings, rich, structlog, httpx, pyyaml) + extras (scrape: playwright; package-pdf: img2pdf, pillow; hyphenation: pyphen). Dev: pytest, ruff, mypy strict.
+- [x] `LICENSE` (MIT) e `NOTICE` con elenco licenze upstream (manga-image-translator GPL-3.0, LiteLLM MIT, Playwright Apache-2.0, Pyphen LGPL/MPL, ecc.)
+- [x] `README.md` con disclaimer prudente, claim "best-effort", obiettivi finali separati, tabella alias `--model`, sezione font OFL consigliati
+- [x] `docs/PROGRESS.md` (questo file)
+- [x] `docs/UNOFFICIAL_ADAPTERS.md` (placeholder per MangaFire v0.3)
+- [x] `docs/PROVIDER_NOTES.md` (Chat Completions vs Responses API, glossary workaround, tabella alias)
+- [x] `.env.example` (Anthropic + OpenAI + Google + LITELLM_PORT + MITR_BIN_PATH) e `.gitignore` (Python, venv, output, fixture immagini protette)
+- [x] CI `.github/workflows/ci.yml` (matrix Python 3.11/3.12, ruff lint + format check, mypy strict, pytest, NO rete, NO chiamate paid)
+- [x] `scripts/bootstrap.sh` (eseguibile, `uv sync` + istruzioni manuali per install MITR in venv dedicato)
+- [x] Placeholder `src/msrt/cli.py` (Typer app) + `__init__.py` di tutti i package
+- [x] Test smoke `tests/test_smoke.py` (3 test, tutti passano)
+- [x] **Primo commit `chore: bootstrap repository (v0.0)`** — hash `afc7aaa`, 21 files, 1483 inserzioni
+
+**Verifica qualità locale (post-commit)**:
+- `uv sync --all-extras --dev`: OK
+- `uv run ruff check src tests`: All checks passed
+- `uv run ruff format --check src tests`: 9 files already formatted
+- `uv run mypy src/msrt`: Success: no issues found in 7 source files
+- `uv run pytest -q`: 3 passed in 0.04s
 
 ### v0.1 — Motore end-to-end con input locale (MVP)
 *(da iniziare dopo v0.0)*
