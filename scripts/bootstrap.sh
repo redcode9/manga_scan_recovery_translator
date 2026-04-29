@@ -15,7 +15,7 @@ echo
 echo "✅ msrt installato in venv locale."
 echo
 echo "─────────────────────────────────────────────────────────────────"
-echo "PROSSIMI PASSI (manuali, non automatizzati per evitare contagio licenze):"
+echo "PROSSIMI PASSI (manuali, non automatizzati per mantenere separate le licenze):"
 echo "─────────────────────────────────────────────────────────────────"
 echo
 echo "1) Installa manga-image-translator (MITR) in un VENV DEDICATO."

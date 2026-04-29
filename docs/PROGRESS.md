@@ -17,7 +17,7 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 | Data | Decisione | Motivazione |
 |---|---|---|
 | 2026-04-29 | Lingue: EN → IT priorità | Esempio dell'utente è `mangafire.to/.../en/` |
-| 2026-04-29 | Architettura: wrap di MITR come **dipendenza esterna**, non fork né import | MITR è GPL-3.0; il wrapper resta MIT senza contagio licenza |
+| 2026-04-29 | Architettura: wrap di MITR come **dipendenza esterna**, non fork né import | MITR è GPL-3.0; il wrapper resta MIT e mantiene una separazione esplicita dal motore esterno |
 | 2026-04-29 | Provider LLM multi-provider via LiteLLM proxy | Anthropic + OpenAI + Google intercambiabili senza patch upstream |
 | 2026-04-29 | Default model: Claude Sonnet 4.6 | Bilanciamento qualità/costo per traduzione manga |
 | 2026-04-29 | Default formato: CBZ (`translate`/`package`), PDF (`run-local`/`run`) | CBZ è standard archivio manga; PDF è il formato lettura per l'utente finale |
@@ -27,6 +27,8 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 | 2026-04-29 | Niente smoke test paid in CI; `--paid-smoke` solo opt-in in `doctor` | Costo, fragilità, requisito 3 chiavi |
 | 2026-04-29 | RunManifest `msrt-run.json` salvato per ogni esecuzione | Riproducibilità, debug, A/B tra provider |
 | 2026-04-29 | LLM locale rimandato a v0.7 via Ollama, modello scelto al momento via benchmark | Lo stato dell'arte locale evolve velocemente, niente hardcoding oggi |
+| 2026-04-29 | Nessun remoto GitHub creato per ora | Non serve per v0.1 locale; nome, account/org e visibilità si decidono prima della pubblicazione o collaborazione esterna |
+| 2026-04-29 | Rimossi URL GitHub placeholder dal metadata package | Evita metadata PyPI/packaging puntati a un repository non ancora creato |
 
 ---
 
@@ -46,6 +48,7 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 - [x] Placeholder `src/msrt/cli.py` (Typer app) + `__init__.py` di tutti i package
 - [x] Test smoke `tests/test_smoke.py` (3 test, tutti passano)
 - [x] **Primo commit `chore: bootstrap repository (v0.0)`** — hash `afc7aaa`, 21 files, 1483 inserzioni
+- [x] Review v0.0: rimossi metadata URL GitHub prematuri, aggiunti `.gitkeep` per tracciare cartelle vuote previste dal piano, formulazione licenza resa più prudente
 
 **Verifica qualità locale (post-commit)**:
 - `uv sync --all-extras --dev`: OK
@@ -53,6 +56,14 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 - `uv run ruff format --check src tests`: 9 files already formatted
 - `uv run mypy src/msrt`: Success: no issues found in 7 source files
 - `uv run pytest -q`: 3 passed in 0.04s
+
+**Review successiva (2026-04-29)**:
+- `git status --short`: pulito prima della review
+- `git log --oneline --decorate --stat -5`: 2 commit su `main`
+- `uv run ruff check src tests`: All checks passed
+- `uv run ruff format --check src tests`: 9 files already formatted
+- `uv run mypy src/msrt`: Success: no issues found in 7 source files
+- `uv run pytest -q`: 3 passed in 0.01s
 
 ### v0.1 — Motore end-to-end con input locale (MVP)
 *(da iniziare dopo v0.0)*
