@@ -2,11 +2,15 @@
 
 CLI Python che, partendo da una cartella di immagini manga (MVP) o da un URL di capitolo (estensioni successive), produce un archivio leggibile (CBZ o PDF) con il testo tradotto da inglese a italiano.
 
-> ⚠️ **Stato del progetto: in sviluppo (v0.0).** Questo repository è un wrapper attorno a [`manga-image-translator`](https://github.com/zyddnys/manga-image-translator) (MITR), che resta una **dipendenza esterna** installata e mantenuta dall'utente.
+> ⚠️ **Stato del progetto: in sviluppo (v0.1.x).** Questo repository è un wrapper attorno a [`manga-image-translator`](https://github.com/zyddnys/manga-image-translator) (MITR), che resta una **dipendenza esterna** installata e mantenuta dall'utente.
 
 ## Cosa fa (e cosa non fa)
 
-**Cosa fa oggi (v0.0)**: niente. Solo bootstrap del progetto.
+**Cosa fa oggi (v0.1.x)**:
+- impacchetta cartelle di immagini in CBZ/PDF;
+- gestisce il proxy LiteLLM locale con `msrt server up|down|status`;
+- esegue diagnostica con `msrt doctor`;
+- espone `translate` e `run-local` per la pipeline locale, pronte per MITR installato esternamente.
 
 **Cosa farà nelle prossime release**:
 - v0.1: input = cartella locale di immagini → traduzione EN→IT → CBZ/PDF (un PDF per capitolo). Il layout viene preservato in modalità "best-effort" tramite il renderer di MITR.
@@ -26,19 +30,20 @@ CLI Python che, partendo da una cartella di immagini manga (MVP) o da un URL di 
 - [`manga-image-translator`](https://github.com/zyddnys/manga-image-translator) installato in un venv dedicato (è GPL-3.0, vedi `NOTICE`).
 - Almeno una API key tra Anthropic / OpenAI / Google (vedi `.env.example`).
 
-## Installazione (placeholder)
+## Installazione
 
 ```bash
 git clone <repo-url>
 cd manga_scan_recovery_translator
 cp .env.example .env  # popola le chiavi
-uv sync
+uv sync --all-extras --dev
 ./scripts/bootstrap.sh
+./scripts/install-mitr.sh
 ```
 
-I dettagli precisi (install MITR, avvio LiteLLM proxy) saranno documentati a partire da v0.1.
+Poi aggiungi a `.env` il valore `MITR_BIN_PATH` stampato da `scripts/install-mitr.sh` e almeno una chiave API provider.
 
-## Utilizzo (placeholder, v0.1)
+## Utilizzo
 
 ```bash
 # Tradurre una cartella di immagini → CBZ
@@ -49,6 +54,9 @@ msrt run-local ./pages --format pdf --series "Test" --chapter 1
 
 # Verifica prerequisiti
 msrt doctor
+
+# Avvia LiteLLM proxy locale
+msrt server up
 ```
 
 ## Provider LLM

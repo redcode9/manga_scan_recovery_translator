@@ -117,12 +117,24 @@ Obiettivo: rendere `msrt server up/down/status` operativo in modo che il primo E
 - [x] `docker-compose.yml` come **riferimento opzionale** per chi preferisce Docker (Linux/NVIDIA o isolamento). Documentato che `msrt server up` resta la via consigliata su macOS/MPS.
 - [x] `scripts/bootstrap.sh` aggiornato con istruzioni native+docker per il proxy.
 - [x] `tests/test_server.py` (12 test): binary non trovato, status senza/con PID file stale, idempotenza su already-running, stop SIGTERM, ricerca binary venv-first con fallback PATH, path file PID/log.
+- [x] Review runtime: `server.start_litellm` ora chiude il log handle lato parent dopo lo spawn del subprocess.
+- [x] `scripts/install-mitr.sh`: convenience installer opt-in per creare il venv MITR esterno, installare `manga-image-translator` e stampare il valore `MITR_BIN_PATH` da copiare in `.env`. Supporta `--prefix`, `--package`, `--dry-run`, `--help`.
+- [x] README, `.env.example` e `scripts/bootstrap.sh` aggiornati con flusso runtime v0.1.x reale e path MITR da venv dedicato.
 
 **Verifica qualità (2026-04-29 dopo v0.1.x)**:
 - `uv run ruff check src tests`: All checks passed
 - `uv run ruff format --check src tests`: 26 files formatted
 - `uv run mypy src/msrt`: Success: no issues found in 19 source files
 - `uv run pytest -q`: 26 passed in 0.29s
+
+**Review runtime + MITR installer (2026-04-29)**:
+- `bash -n scripts/install-mitr.sh`: OK
+- `./scripts/install-mitr.sh --help`: OK
+- `./scripts/install-mitr.sh --dry-run --prefix /tmp/msrt-mitr-dry`: OK, nessuna installazione eseguita
+- `uv run ruff check src tests`: All checks passed
+- `uv run ruff format --check src tests`: 26 files already formatted
+- `uv run mypy src/msrt`: Success: no issues found in 19 source files
+- `uv run pytest -q`: 26 passed in 0.15s
 
 **Smoke reali (2026-04-29)** sulla macchina dell'utente:
 - `uv run msrt server up --wait 25` → `LiteLLM up & healthy PID 56054: ...http://localhost:4000/health`.
@@ -150,7 +162,7 @@ Obiettivo: rendere `msrt server up/down/status` operativo in modo che il primo E
 
 ## Problemi & workaround
 
-- MITR non installato: pin versione, verifica flag reali e E2E reale restano bloccati. Workaround attuale: test con `MockTranslationEngine` + `doctor` esplicito sui prerequisiti mancanti.
+- MITR non installato: pin versione, verifica flag reali e E2E reale restano bloccati. Workaround attuale: test con `MockTranslationEngine` + `doctor` esplicito sui prerequisiti mancanti. Mitigazione aggiunta: `scripts/install-mitr.sh` per install opt-in in venv esterno.
 - LiteLLM non avviato e chiave Anthropic assente in ambiente locale: smoke paid/E2E reale rimandati.
 
 ---

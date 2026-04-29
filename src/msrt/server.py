@@ -126,6 +126,8 @@ def start_litellm(
     except OSError as exc:
         log_handle.close()
         raise LiteLLMUnavailableError(f"Impossibile avviare litellm: {exc}") from exc
+    finally:
+        log_handle.close()
 
     pid_file(settings).write_text(str(process.pid), encoding="utf-8")
 
