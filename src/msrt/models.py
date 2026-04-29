@@ -70,8 +70,11 @@ class TranslationJob(BaseModel):
     provider: Literal["anthropic", "openai", "google", "local"] | None = None
     target_lang: str = "ITA"
     glossary_path: Path | None = None
+    auto_glossary: bool = True
     renderer: Literal["mitr-default", "mitr-manga2eng", "custom-postprocess"] = "mitr-manga2eng"
     font_path: Path | None = None
+    pre_dict_path: Path | None = None
+    gpt_config_path: Path | None = None
     keep_original: bool = False
     use_gpu: bool = True
 

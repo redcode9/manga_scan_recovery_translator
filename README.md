@@ -14,13 +14,13 @@ CLI Python che, partendo da una cartella di immagini manga (MVP) o da un URL di 
 
 **Cosa farà nelle prossime release**:
 - v0.1: input = cartella locale di immagini → traduzione EN→IT → CBZ/PDF (un PDF per capitolo). Il layout viene preservato in modalità "best-effort" tramite il renderer di MITR.
-- v0.2: download da [MangaDex](https://mangadex.org) tramite API ufficiale.
-- v0.3+: adapter aggiuntivi best-effort (vedi [`docs/UNOFFICIAL_ADAPTERS.md`](docs/UNOFFICIAL_ADAPTERS.md)), generic scraper euristico, fallback con vision LLM, post-processing custom per preservazione font/colore piena, supporto LLM locali via Ollama.
+- v0.2: pipeline URL + download da [MangaDex](https://mangadex.org) tramite API ufficiale.
+- v0.3+: adapter aggiuntivi best-effort (vedi [`docs/UNOFFICIAL_ADAPTERS.md`](docs/UNOFFICIAL_ADAPTERS.md)), fallback automatico con browser capture quando il download diretto non funziona, generic scraper euristico, fallback con vision LLM, post-processing custom per preservazione font/colore piena, supporto LLM locali via Ollama.
 
 **Cosa NON fa**:
 - Non promette di funzionare su "qualsiasi sito": estrazione **best-effort** con adapter ufficiali e fallback.
 - Non bundla il motore di traduzione, i font o i modelli: vanno installati separatamente.
-- Non aggira protezioni anti-bot: usa user-agent dichiarato e rispetta rate-limit/`robots.txt` dove applicabile.
+- Non aggira protezioni anti-bot: usa user-agent dichiarato e rispetta rate-limit/`robots.txt` dove applicabile. Se un fallback browser incontra login/captcha/Turnstile, il tool può attendere l'intervento manuale dell'utente, ma non prova a bypassarlo.
 
 ## Prerequisiti
 

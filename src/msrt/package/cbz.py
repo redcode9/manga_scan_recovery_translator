@@ -7,7 +7,6 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from msrt.models import Chapter
-from msrt.package.naming import image_files
 
 
 def write_comic_info(chapter: Chapter) -> bytes:
@@ -29,14 +28,19 @@ def write_comic_info(chapter: Chapter) -> bytes:
     return xml_bytes
 
 
-def package_cbz(image_dir: Path, chapter: Chapter, output_file: Path) -> Path:
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    order = image_files(image_dir)
-    if not order.files:
-        raise ValueError(f"Nessuna immagine da inserire nel CBZ: {image_dir}")
+def package_cbz(files: list[Path], chapter: Chapter, output_file: Path) -> Path:
+    """Bundle the given image files into a CBZ + ComicInfo.xml.
 
+    The caller provides the ordered list of pages; we no longer scan a
+    directory because that risks pulling in stale files from previous
+    chapters.
+    """
+
+    if not files:
+        raise ValueError("Nessuna immagine da inserire nel CBZ (lista vuota).")
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(output_file, "w", compression=ZIP_DEFLATED) as archive:
-        for index, image_path in enumerate(order.files, start=1):
+        for index, image_path in enumerate(files, start=1):
             archive.write(image_path, f"{index:04d}{image_path.suffix.lower()}")
         archive.writestr("ComicInfo.xml", write_comic_info(chapter))
     return output_file

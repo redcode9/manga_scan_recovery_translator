@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
@@ -36,6 +37,14 @@ from msrt.server import (
     stop_litellm,
 )
 from msrt.setup import run_setup
+from msrt.translate.glossary import load_glossary
+from msrt.translate.glossary_builder import (
+    GLOSSARY_SUBDIR,
+    GlossaryBuildError,
+    build_glossary_via_llm,
+    cached_glossary_path,
+    save_glossary,
+)
 
 LITELLM_CONFIG_PATH = Path("configs/litellm.yaml")
 
@@ -121,7 +130,8 @@ def package(
             lang_source="en",
             lang_target=lang_target,
         )
-        outputs = package_outputs(directory, chapter_model, out, format)
+        files = [page.local_path for page in chapter_model.pages]
+        outputs = package_outputs(files, chapter_model, out, format)
     except Exception as exc:
         console.print(f"[red]Errore package:[/red] {exc}")
         raise typer.Exit(code=1) from exc
@@ -136,7 +146,24 @@ def translate(
     out: Annotated[Path, typer.Option("--out", help="Directory output.")] = Path("out"),
     model: Annotated[str | None, typer.Option("--model", help="Default: MSRT_MODEL.")] = None,
     font_path: Annotated[Path | None, typer.Option("--font-path")] = None,
-    glossary: Annotated[Path | None, typer.Option("--glossary")] = None,
+    glossary: Annotated[
+        Path | None,
+        typer.Option(
+            "--glossary",
+            help="Override del glossario. Se omesso uso quello in cache (auto-build).",
+        ),
+    ] = None,
+    auto_glossary: Annotated[
+        bool,
+        typer.Option(
+            "--auto-glossary/--no-auto-glossary",
+            help="Genera/usa automaticamente un glossario di serie via LLM.",
+        ),
+    ] = True,
+    pre_dict: Annotated[
+        Path | None,
+        typer.Option("--pre-dict", help="File TSV correzioni OCR (passato a MITR --pre-dict)."),
+    ] = None,
     series: Annotated[str, typer.Option("--series")] = "Untitled Series",
     chapter: Annotated[str, typer.Option("--chapter")] = "1",
     title: Annotated[str | None, typer.Option("--title")] = None,
@@ -150,11 +177,14 @@ def translate(
         model=_effective_model(model),
         font_path=font_path,
         glossary_path=glossary,
+        auto_glossary=auto_glossary,
+        pre_dict_path=pre_dict,
         use_gpu=not no_gpu,
     )
     with _make_progress() as progress:
         task_id = progress.add_task("Avvio...", total=2)
         on_phase = _phase_callback(progress, task_id)
+        on_log = _log_callback(progress)
         try:
             manifest = translate_only(
                 directory,
@@ -166,6 +196,7 @@ def translate(
                 lang_target=lang_target,
                 job=job,
                 on_phase=on_phase,
+                on_log=on_log,
             )
         except Exception as exc:
             console.print(f"[red]Errore translate:[/red] {exc}")
@@ -182,7 +213,24 @@ def run_local_command(
     format: Annotated[str, typer.Option("--format", help="pdf|cbz|both")] = "pdf",
     model: Annotated[str | None, typer.Option("--model", help="Default: MSRT_MODEL.")] = None,
     font_path: Annotated[Path | None, typer.Option("--font-path")] = None,
-    glossary: Annotated[Path | None, typer.Option("--glossary")] = None,
+    glossary: Annotated[
+        Path | None,
+        typer.Option(
+            "--glossary",
+            help="Override del glossario. Se omesso uso quello in cache (auto-build).",
+        ),
+    ] = None,
+    auto_glossary: Annotated[
+        bool,
+        typer.Option(
+            "--auto-glossary/--no-auto-glossary",
+            help="Genera/usa automaticamente un glossario di serie via LLM.",
+        ),
+    ] = True,
+    pre_dict: Annotated[
+        Path | None,
+        typer.Option("--pre-dict", help="File TSV correzioni OCR (passato a MITR --pre-dict)."),
+    ] = None,
     series: Annotated[str, typer.Option("--series")] = "Untitled Series",
     chapter: Annotated[str, typer.Option("--chapter")] = "1",
     title: Annotated[str | None, typer.Option("--title")] = None,
@@ -196,11 +244,14 @@ def run_local_command(
         model=_effective_model(model),
         font_path=font_path,
         glossary_path=glossary,
+        auto_glossary=auto_glossary,
+        pre_dict_path=pre_dict,
         use_gpu=not no_gpu,
     )
     with _make_progress() as progress:
         task_id = progress.add_task("Avvio...", total=3)
         on_phase = _phase_callback(progress, task_id)
+        on_log = _log_callback(progress)
         try:
             manifest = run_local(
                 directory,
@@ -213,6 +264,7 @@ def run_local_command(
                 fmt=format,
                 job=job,
                 on_phase=on_phase,
+                on_log=on_log,
             )
         except Exception as exc:
             console.print(f"[red]Errore run-local:[/red] {exc}")
@@ -327,6 +379,20 @@ def _phase_callback(progress: Progress, task_id: TaskID) -> PhaseCallback:
     return on_phase
 
 
+def _log_callback(progress: Progress) -> Callable[[str], None]:
+    """Bind a log callback that prints above the progress bar.
+
+    Rich's ``progress.console.print`` reflows around the live progress
+    rendering so messages from the pipeline (auto-glossary build, etc.)
+    don't get mangled by the spinner.
+    """
+
+    def on_log(message: str) -> None:
+        progress.console.print(message)
+
+    return on_log
+
+
 def _print_check(check: DoctorCheck) -> None:
     styles = {"ok": "green", "warn": "yellow", "fail": "red", "info": "cyan"}
     icons = {"ok": "OK", "warn": "WARN", "fail": "FAIL", "info": "INFO"}
@@ -337,6 +403,124 @@ def _print_check(check: DoctorCheck) -> None:
 
 def _effective_model(model: str | None) -> str:
     return model or Settings().default_model
+
+
+glossary_app = typer.Typer(
+    name="glossary",
+    help="Gestione del glossario di serie (auto-generato via LLM).",
+    no_args_is_help=True,
+)
+app.add_typer(glossary_app, name="glossary")
+
+
+@glossary_app.command("build")
+def glossary_build(
+    series: Annotated[str, typer.Argument(help="Titolo della serie (es. 'Wistoria').")],
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Alias modello LLM. Default: MSRT_MODEL."),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Rigenera anche se la cache contiene già il glossario."),
+    ] = False,
+) -> None:
+    """Costruisce (o rigenera con --force) il glossario per la serie via LLM."""
+
+    settings = Settings()
+    cache_path = cached_glossary_path(series, settings)
+    if cache_path.exists() and not force:
+        console.print(
+            f"[yellow]Glossario già presente:[/yellow] {cache_path}\n"
+            "[dim]Usa --force per rigenerarlo.[/dim]"
+        )
+        raise typer.Exit(code=0)
+
+    effective_model = _effective_model(model)
+    console.print(
+        f"Costruisco glossario per [bold]{series}[/bold] con modello "
+        f"[bold]{effective_model}[/bold]..."
+    )
+    try:
+        result = build_glossary_via_llm(series, model=effective_model, settings=settings)
+    except GlossaryBuildError as exc:
+        console.print(f"[red]Build fallita:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    save_glossary(cache_path, result.entries)
+    console.print(
+        f"[green]✓[/green] {len(result.entries)} voci salvate in {cache_path} "
+        f"(token in/out: {result.tokens_in or '?'} / {result.tokens_out or '?'})."
+    )
+
+
+@glossary_app.command("show")
+def glossary_show(
+    series: Annotated[str, typer.Argument(help="Titolo della serie.")],
+) -> None:
+    """Stampa il glossario in cache per la serie."""
+
+    settings = Settings()
+    cache_path = cached_glossary_path(series, settings)
+    if not cache_path.exists():
+        console.print(
+            f"[yellow]Nessun glossario per[/yellow] '{series}' in {cache_path.parent}.\n"
+            f"[dim]Esegui[/dim] [bold]msrt glossary build {series!r}[/bold]"
+        )
+        raise typer.Exit(code=1)
+    entries = load_glossary(cache_path)
+    console.print(f"[bold]{cache_path}[/bold] — {len(entries)} voci\n")
+    for source, target in sorted(entries.items()):
+        console.print(f"  {source}\t→ {target}")
+
+
+@glossary_app.command("list")
+def glossary_list() -> None:
+    """Lista tutti i glossari in cache."""
+
+    settings = Settings()
+    cache_root = settings.cache_dir / GLOSSARY_SUBDIR
+    if not cache_root.exists():
+        console.print(f"[yellow]Cache vuota:[/yellow] {cache_root} non esiste ancora.")
+        return
+    items = sorted(cache_root.glob("*.tsv"))
+    if not items:
+        console.print(f"[yellow]Nessun glossario in[/yellow] {cache_root}.")
+        return
+    console.print(f"[bold]{cache_root}[/bold] — {len(items)} glossari\n")
+    for path in items:
+        try:
+            entries = load_glossary(path)
+        except OSError:
+            console.print(f"  [red]✗[/red] {path.stem} (errore lettura)")
+            continue
+        console.print(f"  [green]●[/green] {path.stem}  [dim]({len(entries)} voci)[/dim]")
+
+
+@glossary_app.command("path")
+def glossary_path_cmd(
+    series: Annotated[str, typer.Argument(help="Titolo della serie.")],
+) -> None:
+    """Stampa il path del glossario in cache (anche se non esiste)."""
+
+    settings = Settings()
+    cache_path = cached_glossary_path(series, settings)
+    console.print(str(cache_path))
+
+
+@glossary_app.command("forget")
+def glossary_forget(
+    series: Annotated[str, typer.Argument(help="Titolo della serie.")],
+) -> None:
+    """Cancella il glossario in cache per la serie."""
+
+    settings = Settings()
+    cache_path = cached_glossary_path(series, settings)
+    if not cache_path.exists():
+        console.print(f"[yellow]Niente da cancellare:[/yellow] {cache_path} non esiste.")
+        return
+    cache_path.unlink()
+    console.print(f"[green]✓[/green] Cancellato {cache_path}.")
 
 
 if __name__ == "__main__":
