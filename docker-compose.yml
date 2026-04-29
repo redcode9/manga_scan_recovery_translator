@@ -1,0 +1,36 @@
+# Docker Compose riferimento opzionale per il proxy LiteLLM.
+#
+# Uso preferito su macOS / Apple Silicon: `msrt server up` (subprocess locale,
+# vedi src/msrt/server.py). Niente MPS in container su Mac, quindi Docker è
+# utile soprattutto su Linux/NVIDIA o per isolamento tra utenti sullo stesso
+# host.
+#
+# Avvio:
+#   docker compose up -d litellm
+#
+# Stop:
+#   docker compose down
+#
+# Le chiavi API sono lette dall'ambiente (es. da .env). Aggiungi le chiavi
+# che ti servono al .env locale, non commitarle.
+
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: msrt-litellm
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - ./configs/litellm.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s

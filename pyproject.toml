@@ -39,6 +39,9 @@ package-pdf = []
 hyphenation = [
     "pyphen>=0.15",
 ]
+runtime = [
+    "litellm[proxy]>=1.55",
+]
 
 [project.scripts]
 msrt = "msrt.cli:app"

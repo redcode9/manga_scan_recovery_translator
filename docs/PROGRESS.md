@@ -106,8 +106,36 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 - `uv run msrt --help`: 6 sotto-comandi listati
 - `uv run msrt doctor --model sonnet`: exit 1 atteso in ambiente non configurato
 
+### v0.1.x — Ambiente runtime LiteLLM (subprocess locale + Docker riferimento)
+
+Obiettivo: rendere `msrt server up/down/status` operativo in modo che il primo E2E reale richieda solo l'install di MITR. Docker non è installato sulla macchina di Piero → scelta nativa via subprocess.
+
+- [x] `pyproject.toml`: aggiunto `[project.optional-dependencies] runtime = ["litellm[proxy]>=1.55"]`. `uv sync --all-extras --dev` ora installa litellm 1.83.14 nel venv di msrt (`.venv/bin/litellm`).
+- [x] `src/msrt/server.py` con `start_litellm`/`stop_litellm`/`litellm_status`/`find_litellm_binary`. PID file in `~/.cache/msrt/litellm.pid`, log file in `~/.cache/msrt/litellm.log`. SIGTERM con fallback SIGKILL su stop. Idempotente su `up` se già running. Healthcheck con timeout configurabile (default 15s).
+- [x] CLI `msrt server up|down|status` reali (sostituiscono il precedente placeholder). `up` accetta `--config` e `--wait`. Errori esplicitati con `LiteLLMUnavailableError` quando il binary non c'è.
+- [x] `msrt doctor` esteso con check `litellm-bin` (path risolto) + `litellm` (status del proxy + healthcheck reale).
+- [x] `docker-compose.yml` come **riferimento opzionale** per chi preferisce Docker (Linux/NVIDIA o isolamento). Documentato che `msrt server up` resta la via consigliata su macOS/MPS.
+- [x] `scripts/bootstrap.sh` aggiornato con istruzioni native+docker per il proxy.
+- [x] `tests/test_server.py` (12 test): binary non trovato, status senza/con PID file stale, idempotenza su already-running, stop SIGTERM, ricerca binary venv-first con fallback PATH, path file PID/log.
+
+**Verifica qualità (2026-04-29 dopo v0.1.x)**:
+- `uv run ruff check src tests`: All checks passed
+- `uv run ruff format --check src tests`: 26 files formatted
+- `uv run mypy src/msrt`: Success: no issues found in 19 source files
+- `uv run pytest -q`: 26 passed in 0.29s
+
+**Smoke reali (2026-04-29)** sulla macchina dell'utente:
+- `uv run msrt server up --wait 25` → `LiteLLM up & healthy PID 56054: ...http://localhost:4000/health`.
+- `curl http://localhost:4000/health` → HTTP 200.
+- `uv run msrt server status` → identico a sopra.
+- `uv run msrt doctor --model sonnet` → `litellm-bin` ok (path .venv/bin/litellm), `litellm` ok (PID 56054), restanti check riportano correttamente lo stato (model fail per ANTHROPIC_API_KEY mancante, mitr fail per MITR non installato).
+- `uv run msrt server down` → `LiteLLM fermato.`
+- `uv run msrt server status` → exit 1 + `LiteLLM non in esecuzione (no .../litellm.pid)`.
+
+→ Lo stack runtime è ora completo. Il primo E2E reale richiede solo: install MITR in venv dedicato + `ANTHROPIC_API_KEY` in `.env` + cartella di immagini.
+
 ### v0.2+ — vedi piano
-*(da pianificare dopo v0.1)*
+*(da pianificare dopo l'E2E reale)*
 
 ---
 
@@ -116,6 +144,7 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 - 2026-04-29: test automatici v0.1 passano (`ruff`, `ruff format --check`, `mypy strict`, `pytest`).
 - 2026-04-29: smoke CLI `msrt --help` OK.
 - 2026-04-29: smoke `msrt doctor --model sonnet` fallisce correttamente perché mancano prerequisiti runtime reali.
+- 2026-04-29: smoke E2E ambiente runtime — `msrt server up` avvia LiteLLM (PID 56054), `curl /health` 200, `msrt server status` rileva up healthy, `msrt server down` lo ferma. PID file gestito correttamente.
 
 ---
 

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from msrt import __version__
 from msrt.config import Settings, resolve_model_alias
+from msrt.server import find_litellm_binary, litellm_status
 from msrt.translate.litellm_proxy import check_litellm_health
 
 
@@ -37,6 +38,7 @@ def run_doctor(
         _font_check(font_path),
         _hardware_check(),
         _mitr_check(settings),
+        _litellm_binary_check(),
         _litellm_check(settings),
         DoctorCheck("msrt", "ok", f"msrt {__version__}"),
     ]
@@ -138,6 +140,30 @@ def _mitr_check(settings: Settings) -> DoctorCheck:
     return DoctorCheck("mitr", "ok", first_line)
 
 
+def _litellm_binary_check() -> DoctorCheck:
+    binary = find_litellm_binary()
+    if binary is None:
+        return DoctorCheck(
+            "litellm-bin",
+            "warn",
+            "Binary 'litellm' non trovato; installa l'extra runtime con `uv sync --all-extras`.",
+        )
+    return DoctorCheck("litellm-bin", "ok", binary)
+
+
 def _litellm_check(settings: Settings) -> DoctorCheck:
+    status = litellm_status(settings)
+    if status.running and status.healthy:
+        return DoctorCheck("litellm", "ok", f"PID {status.pid}: {status.message}")
+    if status.running:
+        return DoctorCheck(
+            "litellm", "warn", f"PID {status.pid} attivo ma non healthy: {status.message}"
+        )
     health = check_litellm_health(settings)
-    return DoctorCheck("litellm", "ok" if health.ok else "fail", health.message)
+    if health.ok:
+        return DoctorCheck("litellm", "ok", health.message)
+    return DoctorCheck(
+        "litellm",
+        "warn",
+        f"Proxy non in esecuzione. Avvia con `msrt server up` ({health.message}).",
+    )

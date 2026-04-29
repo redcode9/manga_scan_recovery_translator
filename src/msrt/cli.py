@@ -17,6 +17,7 @@ from rich.progress import (
 )
 
 from msrt import __version__
+from msrt.config import Settings
 from msrt.doctor import DoctorCheck, run_doctor
 from msrt.models import TranslationJob
 from msrt.pipeline import (
@@ -26,6 +27,16 @@ from msrt.pipeline import (
     run_local,
     translate_only,
 )
+from msrt.server import (
+    LiteLLMUnavailableError,
+    ServerStatus,
+    litellm_status,
+    log_file,
+    start_litellm,
+    stop_litellm,
+)
+
+LITELLM_CONFIG_PATH = Path("configs/litellm.yaml")
 
 app = typer.Typer(
     name="msrt",
@@ -203,12 +214,59 @@ def run_local_command(
 
 
 @app.command()
-def server(action: Annotated[str, typer.Argument(help="up|down")]) -> None:
-    """Gestione LiteLLM proxy (placeholder operativo)."""
+def server(
+    action: Annotated[str, typer.Argument(help="up|down|status")],
+    config: Annotated[
+        Path, typer.Option("--config", help="Config LiteLLM da usare.")
+    ] = LITELLM_CONFIG_PATH,
+    wait_seconds: Annotated[
+        float,
+        typer.Option("--wait", help="Secondi di attesa per healthcheck dopo l'avvio."),
+    ] = 15.0,
+) -> None:
+    """Gestione del proxy LiteLLM locale (subprocess; no Docker richiesto)."""
 
-    console.print(
-        f"[yellow]server {action}: gestione automatica prevista dopo config LiteLLM stabile.[/yellow]"
-    )
+    settings = Settings()
+    if action == "up":
+        try:
+            status = start_litellm(settings, config, wait_seconds=wait_seconds)
+        except LiteLLMUnavailableError as exc:
+            console.print(f"[red]LiteLLM non disponibile:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+        except FileNotFoundError as exc:
+            console.print(f"[red]Config mancante:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+        except RuntimeError as exc:
+            console.print(f"[red]Errore avvio LiteLLM:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+        _print_server_status(status, log_path=log_file(settings))
+        if not status.healthy:
+            raise typer.Exit(code=1)
+    elif action == "down":
+        if stop_litellm(settings):
+            console.print("[green]LiteLLM fermato.[/green]")
+        else:
+            console.print("[yellow]LiteLLM non era in esecuzione.[/yellow]")
+    elif action == "status":
+        status = litellm_status(settings)
+        _print_server_status(status, log_path=log_file(settings))
+        if not status.healthy:
+            raise typer.Exit(code=1)
+    else:
+        console.print(f"[red]Azione non supportata: {action}[/red] (usare up|down|status)")
+        raise typer.Exit(code=2)
+
+
+def _print_server_status(status: ServerStatus, *, log_path: Path) -> None:
+    if status.running and status.healthy:
+        console.print(f"[green]LiteLLM up & healthy[/green] PID {status.pid}: {status.message}")
+    elif status.running:
+        console.print(
+            f"[yellow]LiteLLM up ma non healthy[/yellow] PID {status.pid}: {status.message}"
+        )
+        console.print(f"[dim]Log: {log_path}[/dim]")
+    else:
+        console.print(f"[yellow]{status.message}[/yellow]")
 
 
 def _phase_callback(progress: Progress, task_id: TaskID) -> PhaseCallback:
