@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    default_model: str = Field(default="gpt", alias="MSRT_MODEL")
     litellm_port: int = Field(default=4000, alias="LITELLM_PORT")
     mitr_bin_path: str | None = Field(default=None, alias="MITR_BIN_PATH")
     cache_dir: Path = Field(default_factory=lambda: Path.home() / ".cache" / "msrt")

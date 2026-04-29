@@ -25,7 +25,7 @@ class DoctorCheck:
 
 def run_doctor(
     *,
-    model: str = "sonnet",
+    model: str = "gpt",
     font_path: Path | None = None,
     paid_smoke: bool = False,
     verbose: bool = False,

@@ -32,9 +32,9 @@ Il translator `custom_openai` di MITR **non carica il glossary integrato** nel s
 
 | Alias `--model` | Provider | Default model ID | Vision | Note |
 |---|---|---|---|---|
-| `sonnet` | Anthropic | claude-sonnet-4-6 | sì | Default. Bilanciato qualità/costo. |
+| `sonnet` | Anthropic | claude-sonnet-4-6 | sì | Bilanciato qualità/costo. |
 | `opus` | Anthropic | claude-opus-4-7 | sì | Massima qualità Anthropic. Costo ~5×. |
-| `gpt` | OpenAI | gpt-5.5 | sì | Latest flagship al 2026-04-29. |
+| `gpt` | OpenAI | gpt-5.5 | sì | Default setup e prossimo E2E. Latest flagship al 2026-04-29. |
 | `gpt-5` | OpenAI | gpt-5 | sì | Alias legacy. |
 | `gpt-mini` | OpenAI | gpt-5-mini | sì | Cheap/draft. |
 | `gemini-pro` | Google | gemini-2.5-pro | sì | Flagship Google. |

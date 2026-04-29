@@ -169,19 +169,21 @@ Decisione: il prossimo E2E reale userà OpenAI, non Anthropic. Quindi il percors
 2. Copiare in `.env` il `MITR_BIN_PATH="..."` stampato dallo script.
 3. Impostare `OPENAI_API_KEY=...` in `.env`.
 4. `msrt server up`
-5. `msrt doctor --model gpt --paid-smoke`
-6. `msrt run-local <DIR_IMG> --format pdf --model gpt --series "<SERIE>" --chapter "<N>"`
+5. `msrt doctor --paid-smoke` (`MSRT_MODEL=gpt` viene letto da `.env`)
+6. `msrt run-local <DIR_IMG> --format pdf --series "<SERIE>" --chapter "<N>"`
 
 ### v0.1.x — Setup wizard (`msrt setup` + `scripts/setup.sh`)
 
 Obiettivo: ridurre l'onboarding da "checklist manuale" a "un comando + qualche conferma". Il wizard guida le decisioni che restavano manuali (provider, chiavi, install MITR, avvio proxy, paid smoke).
 
 - [x] `src/msrt/setup.py`: `load_env`/`save_env` (parsing via python-dotenv, preserva commenti, quoting double-quote con escape per spazi/`$`/`#`/quote/CRLF), `PROVIDER_CATALOG` (OpenAI consigliato per il prossimo E2E, poi Anthropic, Google), `run_setup()` orchestra prereqs → .env → provider → API key → MITR → server → paid smoke → next steps.
+- [x] Il provider scelto salva `MSRT_MODEL` in `.env`; `doctor`, `translate` e `run-local` lo usano quando `--model` è omesso.
+- [x] `msrt server up` passa al subprocess LiteLLM anche le chiavi lette da `.env`, non solo `os.environ`, così una chiave appena inserita nel wizard è subito visibile al proxy.
 - [x] CLI `msrt setup` con flag `--yes`, `--no-install-mitr`, `--no-server`, `--paid-smoke`, `--project-root` (per test).
 - [x] `scripts/setup.sh` come entrypoint: `uv sync --all-extras --dev` + `uv run msrt setup`. Forwarda flag dopo `--`.
 - [x] Idempotente: chiavi e `MITR_BIN_PATH` esistenti richiedono conferma esplicita prima della sostituzione; `--yes` mantiene i valori esistenti.
 - [x] README rinnovato: setup guidato (un comando) come metodo consigliato; setup manuale documentato come alternativa.
-- [x] Test (`tests/test_setup.py`, 11 nuovi): round-trip `.env`, preservazione commenti, quoting valori speciali, alias del catalogo coerenti con `MODEL_ALIASES`, smoke `run_setup` con `--yes` skip, fail-fast quando `uv` manca.
+- [x] Test (`tests/test_setup.py`): round-trip `.env`, preservazione commenti, quoting valori speciali, alias del catalogo coerenti con `MODEL_ALIASES`, smoke `run_setup` con `--yes`, idempotenza `MSRT_MODEL`, export env in-process, fail-fast quando `uv` manca, exit code non-zero se `--paid-smoke` fallisce.
 
 **Verifica qualità (2026-04-29 dopo setup wizard)**:
 - `uv run ruff check src tests`: All checks passed
@@ -189,12 +191,50 @@ Obiettivo: ridurre l'onboarding da "checklist manuale" a "un comando + qualche c
 - `uv run mypy src/msrt`: Success: no issues found in 20 source files
 - `uv run pytest -q`: 40 passed in 0.16s
 
+**Review setup wizard (2026-04-29)**:
+- Corretto flusso env → subprocess: le chiavi lette/scritte da `.env` vengono propagate al processo corrente e poi al subprocess LiteLLM.
+- Corretto default modello: il wizard salva `MSRT_MODEL=gpt` e `doctor`/`translate`/`run-local` usano `MSRT_MODEL` quando `--model` è omesso.
+- Corretto idempotenza: se `.env` contiene già `MSRT_MODEL` valido, `msrt setup --yes` lo mantiene invece di forzare OpenAI.
+- Corretto `--paid-smoke`: se la chiamata reale al provider fallisce, `msrt setup --paid-smoke` esce con codice non-zero; `--yes --paid-smoke` è non interattivo e richiede chiave già presente in env/`.env`.
+- Aggiornati next steps: dopo setup si può usare `msrt doctor` e `msrt run-local ...` senza ripetere `--model gpt`.
+- `.venv/bin/ruff check src tests`: All checks passed
+- `.venv/bin/ruff format --check src tests`: 29 files already formatted
+- `.venv/bin/mypy src/msrt`: Success: no issues found in 20 source files
+- `.venv/bin/pytest -q`: 44 passed in 0.24s
+
 **Smoke CLI (2026-04-29)**:
 - `uv run msrt --help`: 7 sotto-comandi listati (`version`, `doctor`, `package`, `translate`, `run-local`, `setup`, `server`).
 - `uv run msrt setup --help`: tutti i flag presenti, descrizioni in italiano.
-- `uv run msrt setup --yes --no-install-mitr --no-server --project-root /tmp/msrt-test-setup`: crea `.env` da template, sceglie OpenAI di default, salta install/server, stampa next steps. Exit 0.
+- `.venv/bin/msrt setup --yes --no-install-mitr --no-server --project-root /tmp/...`: crea `.env` da template con `MSRT_MODEL=gpt`, sceglie OpenAI di default, salta install/server, stampa next steps coerenti. Exit 0.
 
 → L'onboarding adesso è `git clone + ./scripts/setup.sh`. L'E2E reale resta dipendente solo dall'effettivo install di MITR + chiave provider.
+
+### v0.1.x — Diagnostica primo E2E (2026-04-29)
+
+Tentativo reale del wizard sulla macchina dell'utente. Trovati 3 problemi e fixati.
+
+**Problema A: install MITR fallito** — `uv pip install manga-image-translator` ritornava `package not found`. Causa: MITR **non è pubblicato su PyPI** sotto quel nome; va installato dal repo Git.
+
+Fix in `scripts/install-mitr.sh`:
+- clone del repo `https://github.com/zyddnys/manga-image-translator.git` in `<prefix>/repo` (idempotente: se già clonato fa fetch+checkout+reset).
+- nuovi flag `--git-url` e `--git-ref` (default `main`), `--python` (default `3.11`).
+- `uv pip install -r <repo>/requirements.txt` per le dipendenze runtime.
+- `uv pip install <repo>` per il package stesso (definisce `python -m manga_translator`).
+
+**Problema B: Python 3.12 incompatibile** — il venv MITR usava il Python di sistema (3.12.13), ma il `pyproject.toml` di MITR pinna `requires-python = ">=3.10, <3.12"`.
+
+Fix: il venv ora viene creato con `uv venv --python 3.11 <prefix>/.venv`. uv scarica automaticamente CPython 3.11 se non disponibile.
+
+**Problema C: timeout LiteLLM al primo boot** — `start_litellm` con `wait_seconds=15-20s` è troppo stretto: il primo boot del proxy carica il config, registra i model, fa varie inizializzazioni. Il proxy era effettivamente up a 25-30s ma il wizard segnalava "non healthy".
+
+Fix:
+- `start_litellm.wait_seconds` default da 15.0 a **45.0** (`src/msrt/server.py`).
+- `_maybe_start_server` in setup wizard da 20.0 a **45.0**.
+- `check_litellm_health.timeout` da 2.0 a **5.0**.
+
+Verifica post-fix: `curl http://localhost:4000/health` HTTP 200 con il proxy ancora running dal primo tentativo dell'utente. Test 44/44 pass. `install-mitr.sh --dry-run --prefix /tmp/mitr-dryrun` stampa i nuovi comandi corretti.
+
+**Conseguenze sul piano**: il wizard E2E adesso può andare a buon fine in un solo passaggio. L'utente fa `rm -rf ~/tools/mitr && ./scripts/install-mitr.sh` e il flow continua.
 
 ### v0.2+ — vedi piano
 *(da pianificare dopo l'E2E reale)*
@@ -213,7 +253,7 @@ Obiettivo: ridurre l'onboarding da "checklist manuale" a "un comando + qualche c
 ## Problemi & workaround
 
 - MITR non installato: pin versione, verifica flag reali e E2E reale restano bloccati. Workaround attuale: test con `MockTranslationEngine` + `doctor` esplicito sui prerequisiti mancanti. Mitigazione aggiunta: `scripts/install-mitr.sh` per install opt-in in venv esterno.
-- LiteLLM non avviato e chiave Anthropic assente in ambiente locale: smoke paid/E2E reale rimandati.
+- LiteLLM non avviato e chiave OpenAI assente in ambiente locale: smoke paid/E2E reale rimandati.
 
 ---
 

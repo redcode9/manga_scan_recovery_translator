@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -104,6 +105,12 @@ def _format_value(value: str) -> str:
     return f'"{escaped}"'
 
 
+def _apply_env_to_process(values: dict[str, str]) -> None:
+    for key, value in values.items():
+        if value:
+            os.environ[key] = value
+
+
 def run_setup(
     *,
     project_root: Path,
@@ -132,6 +139,9 @@ def run_setup(
     )
 
     new_values: dict[str, str] = {}
+    if env_values.get("MSRT_MODEL") != provider.alias:
+        new_values["MSRT_MODEL"] = provider.alias
+
     api_key_value = _prompt_for_api_key(cons, provider, env_values, yes=yes)
     if api_key_value is not None:
         new_values[provider.env_var] = api_key_value
@@ -148,14 +158,17 @@ def run_setup(
         keys = ", ".join(new_values)
         cons.print(f"[green]Salvato[/green] {env_path} ({keys}).")
 
+    _apply_env_to_process(env_values)
+
     if start_server:
         _maybe_start_server(cons, project_root)
 
+    paid_smoke_ok = True
     if paid_smoke:
-        _maybe_paid_smoke(cons, provider.alias, yes=yes)
+        paid_smoke_ok = _maybe_paid_smoke(cons, provider.alias, yes=yes)
 
-    _print_next_steps(cons, provider)
-    return 0
+    _print_next_steps(cons, provider, completed=paid_smoke_ok)
+    return 0 if paid_smoke_ok else 1
 
 
 def _check_prereqs(cons: Console) -> bool:
@@ -198,6 +211,7 @@ def _choose_provider(
     *,
     yes: bool,
 ) -> ProviderChoice:
+    existing_provider = _provider_from_env(env_values)
     cons.print("\nProvider LLM disponibili:")
     for index, p in enumerate(PROVIDER_CATALOG, start=1):
         marker = (
@@ -205,14 +219,17 @@ def _choose_provider(
             if env_values.get(p.env_var)
             else "[dim]chiave assente[/dim]"
         )
+        configured = " [cyan](MSRT_MODEL)[/cyan]" if p == existing_provider else ""
         cons.print(
             f"  {index}) {p.label}  "
             f"alias [bold]{p.alias}[/bold]  env [bold]{p.env_var}[/bold]  ({marker})"
+            f"{configured}"
         )
     if yes:
-        return PROVIDER_CATALOG[0]
+        return existing_provider or PROVIDER_CATALOG[0]
+    default_index = str(PROVIDER_CATALOG.index(existing_provider) + 1) if existing_provider else "1"
     while True:
-        raw = typer.prompt("Scegli provider (1-3)", default="1")
+        raw = typer.prompt("Scegli provider (1-3)", default=default_index)
         try:
             idx = int(raw)
             if 1 <= idx <= len(PROVIDER_CATALOG):
@@ -220,6 +237,13 @@ def _choose_provider(
         except ValueError:
             pass
         cons.print(f"[red]Scelta non valida: {raw}[/red]")
+
+
+def _provider_from_env(env_values: dict[str, str]) -> ProviderChoice | None:
+    model = env_values.get("MSRT_MODEL")
+    if not model:
+        return None
+    return provider_alias_lookup().get(model)
 
 
 def _prompt_for_api_key(
@@ -324,7 +348,7 @@ def _maybe_start_server(cons: Console, project_root: Path) -> None:
         cons.print("[yellow]![/yellow] Binary 'litellm' assente; esegui `uv sync --all-extras`.")
         return
     try:
-        status = start_litellm(settings, config, wait_seconds=20.0)
+        status = start_litellm(settings, config, wait_seconds=45.0)
     except (LiteLLMUnavailableError, FileNotFoundError, RuntimeError) as exc:
         cons.print(f"[red]✗[/red] Avvio LiteLLM fallito: {exc}")
         return
@@ -332,7 +356,7 @@ def _maybe_start_server(cons: Console, project_root: Path) -> None:
     cons.print(f"{icon} LiteLLM PID {status.pid}: {status.message}")
 
 
-def _maybe_paid_smoke(cons: Console, alias: str, *, yes: bool) -> None:
+def _maybe_paid_smoke(cons: Console, alias: str, *, yes: bool) -> bool:
     if not yes:
         cons.print(
             "\n[bold]Paid smoke[/bold]: invia una chiamata reale al provider tramite LiteLLM "
@@ -340,22 +364,31 @@ def _maybe_paid_smoke(cons: Console, alias: str, *, yes: bool) -> None:
         )
         if not typer.confirm("Procedo con la chiamata paid?", default=False):
             cons.print("[yellow]Paid smoke saltato.[/yellow]")
-            return
+            return True
     settings = Settings()
     smoke = run_litellm_paid_smoke(settings, model=alias)
     if smoke.ok:
         cons.print(f"[green]✓[/green] {smoke.message}")
+        return True
     else:
         cons.print(f"[red]✗[/red] {smoke.message}")
+        return False
 
 
-def _print_next_steps(cons: Console, provider: ProviderChoice) -> None:
-    cons.rule("[bold green]Setup completato[/bold green]")
+def _print_next_steps(cons: Console, provider: ProviderChoice, *, completed: bool = True) -> None:
+    if completed:
+        cons.rule("[bold green]Setup completato[/bold green]")
+    else:
+        cons.rule("[bold yellow]Setup completato con verifica fallita[/bold yellow]")
+        cons.print(
+            "[yellow]Correggi la chiave/provider o il proxy LiteLLM, poi rilancia "
+            "`msrt doctor --paid-smoke`.[/yellow]"
+        )
     cons.print(
         "\nProssimi comandi suggeriti:\n"
-        f"  [bold]msrt doctor --model {provider.alias}[/bold]\n"
-        f"  [bold]msrt run-local ./pages-test --format pdf --model {provider.alias} "
-        f"--series 'Esempio' --chapter '1'[/bold]"
+        "  [bold]msrt doctor[/bold]  [dim]# usa MSRT_MODEL dal .env[/dim]\n"
+        "  [bold]msrt run-local ./pages-test --format pdf "
+        "--series 'Esempio' --chapter '1'[/bold]"
     )
     cons.print(
         "\nIl prossimo target è il primo E2E reale; quando funziona possiamo passare "

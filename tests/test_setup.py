@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from msrt import setup as msrt_setup
 from msrt.config import MODEL_ALIASES
 from msrt.setup import (
     PROVIDER_CATALOG,
+    _apply_env_to_process,
     _format_value,
     load_env,
     provider_alias_lookup,
@@ -118,7 +120,7 @@ def test_run_setup_yes_skips_interactive_steps(
     monkeypatch.setattr(
         msrt_setup,
         "_maybe_paid_smoke",
-        lambda _cons, _alias, *, yes: None,
+        lambda _cons, _alias, *, yes: True,
     )
 
     code = run_setup(
@@ -131,7 +133,71 @@ def test_run_setup_yes_skips_interactive_steps(
     assert code == 0
     env_path = tmp_path / ".env"
     assert env_path.exists()
-    assert load_env(env_path).get("OPENAI_API_KEY", "") == ""
+    values = load_env(env_path)
+    assert values.get("MSRT_MODEL") == "gpt"
+    assert values.get("OPENAI_API_KEY", "") == ""
+
+
+def test_run_setup_yes_keeps_existing_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "MSRT_MODEL=sonnet\nANTHROPIC_API_KEY=sk-existing\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(msrt_setup.shutil, "which", lambda _: "/usr/bin/uv")
+
+    code = run_setup(
+        project_root=tmp_path,
+        yes=True,
+        install_mitr=False,
+        start_server=False,
+        paid_smoke=False,
+    )
+
+    assert code == 0
+    values = load_env(env_path)
+    assert values["MSRT_MODEL"] == "sonnet"
+    assert values["ANTHROPIC_API_KEY"] == "sk-existing"
+
+
+def test_apply_env_to_process_exports_non_empty_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MSRT_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    _apply_env_to_process({"MSRT_MODEL": "gpt", "OPENAI_API_KEY": "sk-test", "EMPTY": ""})
+
+    assert os.environ["MSRT_MODEL"] == "gpt"
+    assert os.environ["OPENAI_API_KEY"] == "sk-test"
+    assert "EMPTY" not in os.environ
+
+
+def test_run_setup_fails_when_paid_smoke_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".env").write_text(
+        "MSRT_MODEL=gpt\nOPENAI_API_KEY=sk-test\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(msrt_setup.shutil, "which", lambda _: "/usr/bin/uv")
+    monkeypatch.setattr(
+        msrt_setup,
+        "_maybe_paid_smoke",
+        lambda _cons, _alias, *, yes: False,
+    )
+
+    code = run_setup(
+        project_root=tmp_path,
+        yes=True,
+        install_mitr=False,
+        start_server=False,
+        paid_smoke=True,
+    )
+
+    assert code == 1
 
 
 def test_run_setup_fails_when_uv_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

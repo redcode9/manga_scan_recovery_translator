@@ -90,7 +90,7 @@ def start_litellm(
     settings: Settings,
     config_path: Path,
     *,
-    wait_seconds: float = 15.0,
+    wait_seconds: float = 45.0,
     poll_interval: float = 0.5,
 ) -> ServerStatus:
     """Start the LiteLLM proxy as a background subprocess.
@@ -120,7 +120,7 @@ def start_litellm(
             [binary, "--config", str(config_path), "--port", str(settings.litellm_port)],
             stdout=log_handle,
             stderr=subprocess.STDOUT,
-            env=os.environ.copy(),
+            env=_litellm_process_env(settings),
             start_new_session=True,
         )
     except OSError as exc:
@@ -197,3 +197,17 @@ def stop_litellm(
         os.kill(pid, signal.SIGKILL)
     pid_path.unlink(missing_ok=True)
     return True
+
+
+def _litellm_process_env(settings: Settings) -> dict[str, str]:
+    env = os.environ.copy()
+    values = {
+        "ANTHROPIC_API_KEY": settings.anthropic_api_key,
+        "OPENAI_API_KEY": settings.openai_api_key,
+        "GEMINI_API_KEY": settings.gemini_api_key,
+        "LITELLM_PORT": str(settings.litellm_port),
+    }
+    for key, value in values.items():
+        if value:
+            env[key] = value
+    return env

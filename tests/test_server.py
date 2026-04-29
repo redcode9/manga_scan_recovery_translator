@@ -160,6 +160,22 @@ def test_pid_file_path(tmp_path: Path) -> None:
     assert server.pid_file(settings) == settings.cache_dir / "litellm.pid"
 
 
+def test_litellm_process_env_includes_settings_api_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-anthropic")
+    monkeypatch.setenv("GEMINI_API_KEY", "sk-gemini")
+    settings = _settings_with_cache(tmp_path)
+
+    env = server._litellm_process_env(settings)
+
+    assert env["OPENAI_API_KEY"] == "sk-openai"
+    assert env["ANTHROPIC_API_KEY"] == "sk-anthropic"
+    assert env["GEMINI_API_KEY"] == "sk-gemini"
+    assert env["LITELLM_PORT"] == "4000"
+
+
 # Sanity: il helper os.kill che usiamo accetta signal=0 per probing — non lo
 # testiamo direttamente per evitare side effect, ma documentiamo il contratto.
 _ = os.kill

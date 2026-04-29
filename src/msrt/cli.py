@@ -73,7 +73,10 @@ def version() -> None:
 
 @app.command()
 def doctor(
-    model: Annotated[str, typer.Option("--model", help="Alias modello da verificare.")] = "sonnet",
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Alias modello da verificare. Default: MSRT_MODEL."),
+    ] = None,
     font_path: Annotated[
         Path | None, typer.Option("--font-path", help="Font da verificare.")
     ] = None,
@@ -85,7 +88,12 @@ def doctor(
 ) -> None:
     """Diagnostica setup locale senza chiamate paid di default."""
 
-    checks = run_doctor(model=model, font_path=font_path, paid_smoke=paid_smoke, verbose=verbose)
+    checks = run_doctor(
+        model=_effective_model(model),
+        font_path=font_path,
+        paid_smoke=paid_smoke,
+        verbose=verbose,
+    )
     for check in checks:
         _print_check(check)
     if any(check.status == "fail" for check in checks):
@@ -126,7 +134,7 @@ def package(
 def translate(
     directory: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)],
     out: Annotated[Path, typer.Option("--out", help="Directory output.")] = Path("out"),
-    model: Annotated[str, typer.Option("--model")] = "sonnet",
+    model: Annotated[str | None, typer.Option("--model", help="Default: MSRT_MODEL.")] = None,
     font_path: Annotated[Path | None, typer.Option("--font-path")] = None,
     glossary: Annotated[Path | None, typer.Option("--glossary")] = None,
     series: Annotated[str, typer.Option("--series")] = "Untitled Series",
@@ -139,7 +147,7 @@ def translate(
     """Traduci una cartella di immagini con MITR; non produce CBZ/PDF."""
 
     job = TranslationJob(
-        model=model,
+        model=_effective_model(model),
         font_path=font_path,
         glossary_path=glossary,
         use_gpu=not no_gpu,
@@ -172,7 +180,7 @@ def run_local_command(
     directory: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)],
     out: Annotated[Path, typer.Option("--out", help="Directory output.")] = Path("out"),
     format: Annotated[str, typer.Option("--format", help="pdf|cbz|both")] = "pdf",
-    model: Annotated[str, typer.Option("--model")] = "sonnet",
+    model: Annotated[str | None, typer.Option("--model", help="Default: MSRT_MODEL.")] = None,
     font_path: Annotated[Path | None, typer.Option("--font-path")] = None,
     glossary: Annotated[Path | None, typer.Option("--glossary")] = None,
     series: Annotated[str, typer.Option("--series")] = "Untitled Series",
@@ -185,7 +193,7 @@ def run_local_command(
     """Traduci una cartella locale di immagini e produci PDF/CBZ."""
 
     job = TranslationJob(
-        model=model,
+        model=_effective_model(model),
         font_path=font_path,
         glossary_path=glossary,
         use_gpu=not no_gpu,
@@ -325,6 +333,10 @@ def _print_check(check: DoctorCheck) -> None:
     style = styles.get(check.status, "white")
     icon = icons.get(check.status, check.status.upper())
     console.print(f"[{style}]{icon:>4}[/{style}] {check.name}: {check.message}")
+
+
+def _effective_model(model: str | None) -> str:
+    return model or Settings().default_model
 
 
 if __name__ == "__main__":

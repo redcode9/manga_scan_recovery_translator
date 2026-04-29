@@ -23,7 +23,7 @@ class ProxySmoke:
     latency_ms: int | None = None
 
 
-def check_litellm_health(settings: Settings, timeout: float = 2.0) -> ProxyHealth:
+def check_litellm_health(settings: Settings, timeout: float = 5.0) -> ProxyHealth:
     url = f"{settings.litellm_base_url}/health"
     try:
         response = httpx.get(url, timeout=timeout)

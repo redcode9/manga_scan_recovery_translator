@@ -66,7 +66,7 @@ class Chapter(BaseModel):
 
 class TranslationJob(BaseModel):
     engine: Literal["subprocess", "http"] = "subprocess"
-    model: str = "sonnet"
+    model: str = "gpt"
     provider: Literal["anthropic", "openai", "google", "local"] | None = None
     target_lang: str = "ITA"
     glossary_path: Path | None = None

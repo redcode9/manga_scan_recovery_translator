@@ -44,7 +44,7 @@ cd manga_scan_recovery_translator
 
 1. verifica i prerequisiti (uv, versione Python, spazio disco);
 2. crea `.env` (copiato da `.env.example` se manca);
-3. ti fa scegliere il provider LLM (OpenAI / Anthropic / Google) e ne salva la chiave in `.env`;
+3. ti fa scegliere il provider LLM (OpenAI / Anthropic / Google), salva `MSRT_MODEL` e la chiave in `.env`;
 4. installa MITR in un venv esterno (`~/tools/mitr` di default) chiamando `scripts/install-mitr.sh`;
 5. avvia il proxy LiteLLM con `msrt server up`;
 6. opzionalmente esegue `--paid-smoke` per validare la chiave con una chiamata reale (chiede conferma esplicita).
@@ -53,9 +53,13 @@ Il wizard è idempotente: se una chiave o `MITR_BIN_PATH` esistono già, chiede 
 
 ```bash
 ./scripts/setup.sh -- --yes --no-server      # accetta default; non avvia il proxy
-./scripts/setup.sh -- --yes --paid-smoke     # full automation incl. chiamata paid
+OPENAI_API_KEY=... ./scripts/setup.sh -- --yes --paid-smoke  # non interattivo + smoke reale
 msrt setup --no-install-mitr                 # se MITR è già installato
 ```
+
+`--yes` non chiede la chiave in prompt: per uso non interattivo passa la chiave
+via ambiente o scrivila prima in `.env`. Se `--paid-smoke` fallisce, il comando
+esce con codice non zero.
 
 **Setup manuale** (se preferisci controllare ogni passo):
 
@@ -79,17 +83,17 @@ msrt translate ./pages --series "Test" --chapter 1 --out ./out
 # One-shot: traduci e produci PDF
 msrt run-local ./pages --format pdf --series "Test" --chapter 1
 
-# Verifica prerequisiti
+# Verifica prerequisiti (usa MSRT_MODEL se --model è omesso)
 msrt doctor
 
 # Avvia LiteLLM proxy locale
 msrt server up
 
-# Preflight OpenAI reale (opt-in, consuma pochi token)
-msrt doctor --model gpt --paid-smoke
+# Preflight OpenAI reale (opt-in, consuma pochi token; usa MSRT_MODEL=gpt)
+msrt doctor --paid-smoke
 
 # Primo E2E consigliato con OpenAI
-msrt run-local ./pages --format pdf --model gpt --series "Test" --chapter 1
+msrt run-local ./pages --format pdf --series "Test" --chapter 1
 ```
 
 ## Provider LLM
@@ -98,9 +102,9 @@ Il flag `--model` accetta alias multi-provider, configurati in `configs/litellm.
 
 | Alias | Provider | Modello (default) |
 |---|---|---|
-| `sonnet` (default) | Anthropic | claude-sonnet-4-6 |
+| `sonnet` | Anthropic | claude-sonnet-4-6 |
 | `opus` | Anthropic | claude-opus-4-7 |
-| `gpt` | OpenAI | gpt-5.5 |
+| `gpt` (default setup) | OpenAI | gpt-5.5 |
 | `gpt-mini` | OpenAI | gpt-5-mini |
 | `gemini-pro` | Google | gemini-2.5-pro |
 | `gemini-flash` | Google | gemini-2.5-flash |
