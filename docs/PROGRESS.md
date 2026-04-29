@@ -29,6 +29,7 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 | 2026-04-29 | LLM locale rimandato a v0.7 via Ollama, modello scelto al momento via benchmark | Lo stato dell'arte locale evolve velocemente, niente hardcoding oggi |
 | 2026-04-29 | Nessun remoto GitHub creato per ora | Non serve per v0.1 locale; nome, account/org e visibilità si decidono prima della pubblicazione o collaborazione esterna |
 | 2026-04-29 | Rimossi URL GitHub placeholder dal metadata package | Evita metadata PyPI/packaging puntati a un repository non ancora creato |
+| 2026-04-29 | `--lang-target` deve pilotare anche il target MITR | Evita CLI ingannevole: il flag non deve finire solo nel manifest/metadata |
 
 ---
 
@@ -93,6 +94,18 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 - `uv run msrt translate --help`: tutti i flag previsti presenti (incluso `--glossary` e `--no-gpu`)
 - Smoke `msrt doctor --model sonnet` (precedente): exit 1 atteso, segnala mancanza chiave + MITR + LiteLLM. Comportamento corretto in ambiente senza setup completo.
 
+**Review v0.1 successiva (2026-04-29)**:
+- Corretto bug: `--lang-target` ora viene mappato a `TranslationJob.target_lang` e usato dal comando subprocess MITR (`it`/`ITA`/`italiano` → `ITA`; codici a 3 lettere passano uppercase; codici non supportati falliscono con errore chiaro).
+- Corretto edge case: directory senza immagini supportate fallisce subito prima di invocare MITR.
+- Corretto naming: `msrt package` usa lo stesso slug robusto di `run-local`, invece di comporre path con `series` grezzo; slash e caratteri non alfanumerici non creano sottocartelle accidentali.
+- Aggiunti test per target lang MITR, directory vuote e manifest su errore.
+- `uv run ruff check src tests`: All checks passed
+- `uv run ruff format --check src tests`: 24 files already formatted
+- `uv run mypy src/msrt`: Success: no issues found in 18 source files
+- `uv run pytest -q`: 14 passed in 0.52s
+- `uv run msrt --help`: 6 sotto-comandi listati
+- `uv run msrt doctor --model sonnet`: exit 1 atteso in ambiente non configurato
+
 ### v0.2+ — vedi piano
 *(da pianificare dopo v0.1)*
 
@@ -100,13 +113,16 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 
 ## Verifiche
 
-Nessuna ancora.
+- 2026-04-29: test automatici v0.1 passano (`ruff`, `ruff format --check`, `mypy strict`, `pytest`).
+- 2026-04-29: smoke CLI `msrt --help` OK.
+- 2026-04-29: smoke `msrt doctor --model sonnet` fallisce correttamente perché mancano prerequisiti runtime reali.
 
 ---
 
 ## Problemi & workaround
 
-Nessuno ancora.
+- MITR non installato: pin versione, verifica flag reali e E2E reale restano bloccati. Workaround attuale: test con `MockTranslationEngine` + `doctor` esplicito sui prerequisiti mancanti.
+- LiteLLM non avviato e chiave Anthropic assente in ambiente locale: smoke paid/E2E reale rimandati.
 
 ---
 

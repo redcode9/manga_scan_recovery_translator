@@ -10,7 +10,13 @@ from PIL import Image
 
 from msrt.config import Settings
 from msrt.models import TranslationJob
-from msrt.pipeline import EngineFactory, run_local, translate_only
+from msrt.pipeline import (
+    EngineFactory,
+    collect_local_chapter,
+    mitr_target_language,
+    run_local,
+    translate_only,
+)
 from msrt.translate.engine import (
     TranslationEngine,
     TranslationError,
@@ -153,3 +159,26 @@ def test_translate_only_skips_packaging(tmp_path: Path) -> None:
     assert (translated / "1.png").exists()
     assert (translated / "2.png").exists()
     assert manifest.output_files == [str(translated)]
+
+
+def test_collect_local_chapter_rejects_empty_directory(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Nessuna immagine"):
+        collect_local_chapter(
+            tmp_path,
+            series="Empty",
+            chapter_number="1",
+            chapter_title=None,
+            lang_source="en",
+            lang_target="it",
+        )
+
+
+def test_mitr_target_language_maps_italian_aliases() -> None:
+    assert mitr_target_language("it") == "ITA"
+    assert mitr_target_language("ITA") == "ITA"
+    assert mitr_target_language("italiano") == "ITA"
+
+
+def test_mitr_target_language_rejects_unsupported_two_letter_code() -> None:
+    with pytest.raises(ValueError, match="Target language"):
+        mitr_target_language("fr")

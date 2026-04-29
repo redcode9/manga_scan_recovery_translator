@@ -87,7 +87,7 @@ class SubprocessEngine(TranslationEngine):
             "--translator",
             "custom_openai",
             "--target-lang",
-            "ITA",
+            job.target_lang,
             "--gpt-config",
             str(self.prompt_config),
             "--save-text",

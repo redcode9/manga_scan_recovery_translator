@@ -19,9 +19,13 @@ from rich.progress import (
 from msrt import __version__
 from msrt.doctor import DoctorCheck, run_doctor
 from msrt.models import TranslationJob
-from msrt.package.cbz import package_cbz
-from msrt.package.pdf import package_pdf
-from msrt.pipeline import PhaseCallback, collect_local_chapter, run_local, translate_only
+from msrt.pipeline import (
+    PhaseCallback,
+    collect_local_chapter,
+    package_outputs,
+    run_local,
+    translate_only,
+)
 
 app = typer.Typer(
     name="msrt",
@@ -88,25 +92,20 @@ def package(
 ) -> None:
     """Impacchetta immagini già tradotte in CBZ/PDF."""
 
-    chapter_model = collect_local_chapter(
-        directory,
-        series=series,
-        chapter_number=chapter,
-        chapter_title=title,
-        lang_source="en",
-        lang_target=lang_target,
-    )
-    out.mkdir(parents=True, exist_ok=True)
-    outputs: list[Path] = []
-    if format in {"cbz", "both"}:
-        outputs.append(
-            package_cbz(directory, chapter_model, out / f"{series}-{chapter}-{lang_target}.cbz")
+    try:
+        chapter_model = collect_local_chapter(
+            directory,
+            series=series,
+            chapter_number=chapter,
+            chapter_title=title,
+            lang_source="en",
+            lang_target=lang_target,
         )
-    if format in {"pdf", "both"}:
-        outputs.append(package_pdf(directory, out / f"{series}-{chapter}-{lang_target}.pdf"))
-    if not outputs:
-        console.print(f"[red]Formato non supportato: {format}[/red]")
-        raise typer.Exit(code=2)
+        outputs = package_outputs(directory, chapter_model, out, format)
+    except Exception as exc:
+        console.print(f"[red]Errore package:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
     for path in outputs:
         console.print(f"[green]Creato[/green] {path}")
 

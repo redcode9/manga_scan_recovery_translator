@@ -68,6 +68,7 @@ class TranslationJob(BaseModel):
     engine: Literal["subprocess", "http"] = "subprocess"
     model: str = "sonnet"
     provider: Literal["anthropic", "openai", "google", "local"] | None = None
+    target_lang: str = "ITA"
     glossary_path: Path | None = None
     renderer: Literal["mitr-default", "mitr-manga2eng", "custom-postprocess"] = "mitr-manga2eng"
     font_path: Path | None = None

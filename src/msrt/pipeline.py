@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -49,6 +50,9 @@ def collect_local_chapter(
     lang_target: str,
 ) -> Chapter:
     order = image_files(image_dir)
+    if not order.files:
+        raise ValueError(f"Nessuna immagine supportata trovata in {image_dir}")
+
     pages: list[Page] = []
     for index, image_path in enumerate(order.files, start=1):
         with Image.open(image_path) as image:
@@ -158,6 +162,7 @@ def translate_only(
     )
 
     translated_dir = out_dir / "translated-pages"
+    job = job.model_copy(update={"target_lang": mitr_target_language(lang_target)})
     manifest = build_manifest(
         chapter,
         command=" ".join(sys.argv),
@@ -218,6 +223,7 @@ def run_local(
     )
 
     translated_dir = out_dir / "translated-pages"
+    job = job.model_copy(update={"target_lang": mitr_target_language(lang_target)})
     manifest = build_manifest(
         chapter,
         command=" ".join(sys.argv),
@@ -265,6 +271,28 @@ def package_outputs(image_dir: Path, chapter: Chapter, out_dir: Path, fmt: str) 
 
 
 def _chapter_slug(chapter: Chapter) -> str:
-    series = "-".join(chapter.series_title.lower().split())
-    number = chapter.chapter_number.lower().replace(" ", "-")
+    series = _slugify(chapter.series_title)
+    number = _slugify(chapter.chapter_number)
     return f"{series}-{number}-{chapter.language_target}"
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
+    return slug.strip("-") or "untitled"
+
+
+def mitr_target_language(lang_target: str) -> str:
+    normalized = lang_target.strip().lower().replace("_", "-")
+    aliases = {
+        "it": "ITA",
+        "ita": "ITA",
+        "italian": "ITA",
+        "italiano": "ITA",
+    }
+    if normalized in aliases:
+        return aliases[normalized]
+    if len(normalized) == 3 and normalized.isalpha():
+        return normalized.upper()
+    raise ValueError(
+        f"Target language non supportata per MITR: {lang_target!r}. Per ora usare 'it'/'ITA'."
+    )
