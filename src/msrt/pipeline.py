@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from PIL import Image
@@ -22,7 +23,20 @@ from msrt.models import (
 from msrt.package.cbz import package_cbz
 from msrt.package.naming import image_files
 from msrt.package.pdf import package_pdf
-from msrt.translate.engine import SubprocessEngine
+from msrt.translate.engine import SubprocessEngine, TranslationEngine
+
+EngineFactory = Callable[[Settings, Path], TranslationEngine]
+PhaseCallback = Callable[[str], None]
+
+PROMPT_CONFIG_PATH = Path("configs/translator-prompt.yaml")
+
+
+def _default_engine_factory(settings: Settings, prompt_config: Path) -> TranslationEngine:
+    return SubprocessEngine(settings=settings, prompt_config=prompt_config)
+
+
+def _noop_phase(_: str) -> None:
+    return None
 
 
 def collect_local_chapter(
@@ -108,6 +122,73 @@ def save_manifest(manifest: RunManifest, output_dir: Path) -> Path:
     return path
 
 
+def translate_only(
+    image_dir: Path,
+    out_dir: Path,
+    *,
+    series: str,
+    chapter_number: str,
+    chapter_title: str | None,
+    lang_source: str,
+    lang_target: str,
+    job: TranslationJob,
+    engine_factory: EngineFactory | None = None,
+    on_phase: PhaseCallback | None = None,
+) -> RunManifest:
+    """Run only the MITR translation step. No CBZ/PDF packaging.
+
+    The translated images are written to ``out_dir/translated-pages``. The
+    returned ``RunManifest`` lists this directory in ``output_files`` and tags
+    ``metadata["mode"] = "translate-only"`` so callers can distinguish it from
+    a full ``run_local`` invocation.
+    """
+
+    factory = engine_factory or _default_engine_factory
+    phase = on_phase or _noop_phase
+    settings = Settings()
+
+    phase("collect")
+    chapter = collect_local_chapter(
+        image_dir,
+        series=series,
+        chapter_number=chapter_number,
+        chapter_title=chapter_title,
+        lang_source=lang_source,
+        lang_target=lang_target,
+    )
+
+    translated_dir = out_dir / "translated-pages"
+    manifest = build_manifest(
+        chapter,
+        command=" ".join(sys.argv),
+        input_path=image_dir,
+        job=job,
+        engine_binary=settings.mitr_bin_path,
+    )
+    manifest.metadata["mode"] = "translate-only"
+
+    phase("translate")
+    engine = factory(settings, PROMPT_CONFIG_PATH)
+    try:
+        result = engine.translate(image_dir, translated_dir, job)
+        for page in chapter.pages:
+            candidate = translated_dir / page.local_path.name
+            if candidate.exists():
+                page.translated_path = candidate
+        manifest.engine.mitr_version = "unknown"
+        manifest.output_files = [str(result.output_dir)]
+    except Exception as exc:
+        manifest.errors.append(str(exc))
+        manifest.finish()
+        save_manifest(manifest, out_dir)
+        raise
+
+    manifest.finish()
+    save_manifest(manifest, out_dir)
+    phase("done")
+    return manifest
+
+
 def run_local(
     image_dir: Path,
     out_dir: Path,
@@ -119,8 +200,14 @@ def run_local(
     lang_target: str,
     fmt: str,
     job: TranslationJob,
+    engine_factory: EngineFactory | None = None,
+    on_phase: PhaseCallback | None = None,
 ) -> RunManifest:
+    factory = engine_factory or _default_engine_factory
+    phase = on_phase or _noop_phase
     settings = Settings()
+
+    phase("collect")
     chapter = collect_local_chapter(
         image_dir,
         series=series,
@@ -129,6 +216,7 @@ def run_local(
         lang_source=lang_source,
         lang_target=lang_target,
     )
+
     translated_dir = out_dir / "translated-pages"
     manifest = build_manifest(
         chapter,
@@ -138,9 +226,8 @@ def run_local(
         engine_binary=settings.mitr_bin_path,
     )
 
-    engine = SubprocessEngine(
-        settings=settings, prompt_config=Path("configs/translator-prompt.yaml")
-    )
+    phase("translate")
+    engine = factory(settings, PROMPT_CONFIG_PATH)
     try:
         result = engine.translate(image_dir, translated_dir, job)
         for page in chapter.pages:
@@ -149,6 +236,7 @@ def run_local(
                 page.translated_path = candidate
         manifest.engine.mitr_version = "unknown"
 
+        phase("package")
         output_files = package_outputs(
             translated_dir if result.output_dir.exists() else image_dir, chapter, out_dir, fmt
         )
@@ -160,6 +248,7 @@ def run_local(
         raise
     manifest.finish()
     save_manifest(manifest, out_dir)
+    phase("done")
     return manifest
 
 
