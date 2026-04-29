@@ -23,5 +23,5 @@ def test_cli_version_command() -> None:
 def test_cli_doctor_placeholder() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 0
-    assert "placeholder" in result.stdout.lower()
+    assert result.exit_code in {0, 1}
+    assert "python" in result.stdout.lower()

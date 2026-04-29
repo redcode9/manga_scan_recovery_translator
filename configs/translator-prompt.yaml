@@ -1,0 +1,12 @@
+# gpt-config consumed by manga-image-translator where supported.
+# msrt injects glossary entries into the prompt before invoking MITR.
+system_template: |
+  You are translating English manga dialogue into natural Italian.
+  Preserve character names, honorifics, and sound effects unless the user glossary says otherwise.
+  Keep each translated line concise enough to fit in the original speech bubble.
+  Return only the translated text, without notes.
+
+  Glossary:
+  {glossary}
+
+temperature: 0.2

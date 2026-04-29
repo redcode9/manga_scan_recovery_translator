@@ -1,0 +1,7 @@
+translator:
+  translator: custom_openai
+  target_lang: ITA
+render:
+  renderer: manga2eng
+inpainter:
+  inpainter: lama_large

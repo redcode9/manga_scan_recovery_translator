@@ -1,0 +1,181 @@
+"""High-level local pipeline orchestration."""
+
+from __future__ import annotations
+
+import hashlib
+import sys
+from pathlib import Path
+
+from PIL import Image
+
+from msrt import __version__
+from msrt.config import Settings, resolve_model_alias
+from msrt.models import (
+    Chapter,
+    ManifestEngine,
+    ManifestInput,
+    ManifestModel,
+    Page,
+    RunManifest,
+    TranslationJob,
+)
+from msrt.package.cbz import package_cbz
+from msrt.package.naming import image_files
+from msrt.package.pdf import package_pdf
+from msrt.translate.engine import SubprocessEngine
+
+
+def collect_local_chapter(
+    image_dir: Path,
+    *,
+    series: str,
+    chapter_number: str,
+    chapter_title: str | None,
+    lang_source: str,
+    lang_target: str,
+) -> Chapter:
+    order = image_files(image_dir)
+    pages: list[Page] = []
+    for index, image_path in enumerate(order.files, start=1):
+        with Image.open(image_path) as image:
+            width, height = image.size
+        pages.append(
+            Page(
+                index=index,
+                local_path=image_path,
+                width=width,
+                height=height,
+                sha256=file_sha256(image_path),
+            )
+        )
+
+    return Chapter(
+        series_title=series,
+        chapter_number=chapter_number,
+        chapter_title=chapter_title,
+        language_source=lang_source,
+        language_target=lang_target,
+        pages=pages,
+        metadata={
+            "Series": series,
+            "Number": chapter_number,
+            "Title": chapter_title or "",
+            "LanguageISO": lang_target,
+        },
+    )
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
+
+
+def build_manifest(
+    chapter: Chapter,
+    *,
+    command: str,
+    input_path: Path,
+    job: TranslationJob,
+    engine_binary: str | None,
+) -> RunManifest:
+    provider, resolved_model, _ = resolve_model_alias(job.model)
+    return RunManifest(
+        msrt_version=__version__,
+        command=command,
+        input=ManifestInput(type="local", path=str(input_path), page_count=len(chapter.pages)),
+        page_order=[page.local_path.name for page in chapter.pages],
+        page_hashes={page.local_path.name: page.sha256 for page in chapter.pages},
+        model=ManifestModel(alias=job.model, resolved_id=resolved_model, provider=provider),
+        engine=ManifestEngine(type=job.engine, binary=engine_binary),
+        font_path=str(job.font_path) if job.font_path else None,
+        metadata={
+            "series": chapter.series_title,
+            "chapter": chapter.chapter_number,
+            "title": chapter.chapter_title or "",
+            "language_source": chapter.language_source,
+            "language_target": chapter.language_target,
+        },
+    )
+
+
+def save_manifest(manifest: RunManifest, output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / "msrt-run.json"
+    path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+    return path
+
+
+def run_local(
+    image_dir: Path,
+    out_dir: Path,
+    *,
+    series: str,
+    chapter_number: str,
+    chapter_title: str | None,
+    lang_source: str,
+    lang_target: str,
+    fmt: str,
+    job: TranslationJob,
+) -> RunManifest:
+    settings = Settings()
+    chapter = collect_local_chapter(
+        image_dir,
+        series=series,
+        chapter_number=chapter_number,
+        chapter_title=chapter_title,
+        lang_source=lang_source,
+        lang_target=lang_target,
+    )
+    translated_dir = out_dir / "translated-pages"
+    manifest = build_manifest(
+        chapter,
+        command=" ".join(sys.argv),
+        input_path=image_dir,
+        job=job,
+        engine_binary=settings.mitr_bin_path,
+    )
+
+    engine = SubprocessEngine(
+        settings=settings, prompt_config=Path("configs/translator-prompt.yaml")
+    )
+    try:
+        result = engine.translate(image_dir, translated_dir, job)
+        for page in chapter.pages:
+            candidate = translated_dir / page.local_path.name
+            if candidate.exists():
+                page.translated_path = candidate
+        manifest.engine.mitr_version = "unknown"
+
+        output_files = package_outputs(
+            translated_dir if result.output_dir.exists() else image_dir, chapter, out_dir, fmt
+        )
+        manifest.output_files = [str(path) for path in output_files]
+    except Exception as exc:
+        manifest.errors.append(str(exc))
+        manifest.finish()
+        save_manifest(manifest, out_dir)
+        raise
+    manifest.finish()
+    save_manifest(manifest, out_dir)
+    return manifest
+
+
+def package_outputs(image_dir: Path, chapter: Chapter, out_dir: Path, fmt: str) -> list[Path]:
+    slug = _chapter_slug(chapter)
+    outputs: list[Path] = []
+    if fmt in {"cbz", "both"}:
+        outputs.append(package_cbz(image_dir, chapter, out_dir / f"{slug}.cbz"))
+    if fmt in {"pdf", "both"}:
+        outputs.append(package_pdf(image_dir, out_dir / f"{slug}.pdf"))
+    if not outputs:
+        raise ValueError(f"Formato non supportato: {fmt}")
+    return outputs
+
+
+def _chapter_slug(chapter: Chapter) -> str:
+    series = "-".join(chapter.series_title.lower().split())
+    number = chapter.chapter_number.lower().replace(" ", "-")
+    return f"{series}-{number}-{chapter.language_target}"

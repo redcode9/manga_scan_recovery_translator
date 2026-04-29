@@ -68,18 +68,28 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 ### v0.1 — Motore end-to-end con input locale (MVP)
 *(da iniziare dopo v0.0)*
 
-1. Pin versione MITR + verifica flag reali (`--help`, `config-help`)
-2. Modelli `Bubble`, `Page`, `Chapter`, `TranslationJob`, `RunManifest` in `src/msrt/models.py`
-3. Config (`pydantic-settings`) e logging (`structlog` + `rich`)
-4. LiteLLM proxy multi-provider, `configs/litellm.yaml`, `configs/translator-prompt.yaml` con prompt EN→IT manga-aware + glossary embedded
-5. `msrt doctor` (default + `--paid-smoke`)
-6. `TranslationEngine` ABC + `SubprocessEngine` MITR
-7. CLI metadati manuali (`--series`, `--chapter`, `--title`, `--lang-source`, `--lang-target`)
-8. `package/naming.py` natural sort + warning ambiguità
-9. Packaging CBZ (ComicInfo.xml `LanguageISO=it`) + PDF (img2pdf)
-10. RunManifest `msrt-run.json`
-11. CLI `msrt run-local` end-to-end con progress bar
-12. Test E2E manuale su fixture proprietaria
+1. [ ] Pin versione MITR + verifica flag reali (`--help`, `config-help`)
+   - 2026-04-29: MITR non installato nel Python globale né nel venv msrt (`No module named manga_translator`). Decisione: implementare `doctor` e wrapper con errore chiaro; pin/verifica reale resta bloccato finché MITR non viene installato in venv dedicato.
+2. [x] Modelli `Bubble`, `Page`, `Chapter`, `TranslationJob`, `RunManifest` in `src/msrt/models.py`
+3. [x] Config (`pydantic-settings`) e logging (`structlog` + `rich`)
+4. [x] LiteLLM proxy multi-provider, `configs/litellm.yaml`, `configs/translator-prompt.yaml` con prompt EN→IT manga-aware + glossary embedded
+5. [x] `msrt doctor` (default + placeholder esplicito `--paid-smoke`)
+6. [x] `TranslationEngine` ABC + `SubprocessEngine` MITR (subprocess pronto, verifica reale bloccata da MITR mancante)
+7. [x] CLI metadati manuali (`--series`, `--chapter`, `--title`, `--lang-source`, `--lang-target`) su `run-local` e `package`
+8. [x] `package/naming.py` natural sort + warning ambiguità
+9. [x] Packaging CBZ (ComicInfo.xml `LanguageISO=it`) + PDF (img2pdf)
+10. [x] RunManifest `msrt-run.json` model + writer
+11. [ ] CLI `msrt run-local` end-to-end con progress bar
+   - 2026-04-29: comando implementato senza progress bar; end-to-end reale bloccato da MITR mancante.
+12. [ ] Test E2E manuale su fixture proprietaria
+
+**Verifica qualità locale v0.1 parziale (2026-04-29)**:
+- `uv run ruff check src tests`: All checks passed
+- `uv run ruff format --check src tests`: 21 files already formatted
+- `uv run mypy src/msrt`: Success: no issues found in 18 source files
+- `uv run pytest -q`: 7 passed in 0.12s
+- `uv run msrt doctor --model sonnet`: exit code 1 atteso; segnala chiaramente mancanza `ANTHROPIC_API_KEY`, MITR non installato e LiteLLM non avviato.
+- `uv run msrt package /tmp/msrt-package-smoke/pages --out /tmp/msrt-package-smoke/out --format both --series Smoke --chapter 1 --title Test`: OK, prodotti CBZ/PDF; `ComicInfo.xml` contiene `LanguageISO=it`.
 
 ### v0.2+ — vedi piano
 *(da pianificare dopo v0.1)*
