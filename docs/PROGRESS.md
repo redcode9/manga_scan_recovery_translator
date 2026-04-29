@@ -504,6 +504,26 @@ Eliminate anche le costanti `_CONTENT_TYPE_TO_EXT` / `_KNOWN_IMAGE_EXTS`, ora mo
 
 **Quality gate (2026-04-29)**: ruff/format/mypy strict clean, **125 test pass** (era 123, +2 nuovi).
 
+### v0.2b.1 — Code review hardening (2026-04-29)
+
+Code review post v0.2b ha trovato 4 punti, tutti chiusi prima di iniziare v0.2c.
+
+**Alta — fetch cross-chapter pollution**: `download_pages` promuoveva i nuovi file in `output_dir` ma non rimuoveva quelli vecchi. Sequenza tipica: fetch capitolo 50-pagine in `out/fetch/`, poi fetch di un capitolo da 3 pagine nella stessa dir → restavano `004.png ... 050.png` del primo capitolo. Bug strutturalmente identico a quello di v0.1.z su `translated-pages`, ma sul lato fetch.
+
+Fix: nuovo helper `_purge_canonical_pages(output_dir)` invocato **dopo** il successo dello staging e **prima** della rename atomica. Pulisce solo i file matching `^\d{3,}\.(png|jpe?g|webp|gif|avif|bin)$` (case-insensitive); user file (`cover.jpg`) e `msrt-run.json` sopravvivono. Test regressivo: pre-popolo `output_dir` con 5 file canonical + 2 file user, eseguo fetch da 2 pagine, verifico che resti solo `001.png` + `002.png` + i 2 file user.
+
+**Media — `_api_get` non wrappa errori httpx**: `httpx.ConnectError`, `httpx.ReadTimeout`, `httpx.SSLError` sfuggivano alla cattura `except FetchError` del CLI e venivano stampate come traceback grezzo. Esposizione concreta: la rete dell'utente con SSL intercept su `api.mangadex.org` mostrava una traceback mostro invece di un messaggio utile.
+
+Fix: `_api_get` ora cattura `httpx.HTTPError` (base class che copre tutti i sotto-errori di rete httpx) e re-raise come `FetchError("MangaDex API non raggiungibile … Verifica connettività, DNS o eventuali intercept SSL aziendali")`. Test: 2 nuovi (`ConnectError` con simulato cert verify failed, `ReadTimeout`) → entrambi diventano `FetchError`.
+
+**Media/Bassa — feed paging mancante**: `_first_chapter_for_manga` legge solo i primi 100 capitoli del feed. Se un manga ha 200+ capitoli con i primi 100 tutti `externalUrl`, l'errore era generico ("Tutti i capitoli sono externalUrl"). Senza paging completo, l'utente non sapeva se è la lista completa o solo una pagina.
+
+Fix: ora il messaggio di errore include esplicitamente il conteggio (`Il feed ha 250 capitoli ma sto leggendo solo i primi 100; passa un URL /chapter/<UUID> specifico per saltare la selezione automatica`). Paging completo del feed è rimandato (richiede selezione capitolo, fuori scope v0.2). Test: fixture con `total: 250` e tutti `externalUrl` → errore con hint chapter-URL.
+
+**Bassa/docs — README obsoleto**: il header diceva "v0.1.x in sviluppo" e descriveva v0.2 come futuro. Aggiornato a "v0.2.b" + lista capabilities reali (run-local validato 50 pagine, auto-glossary, fetch MangaDex, glossary subapp).
+
+**Quality gate (2026-04-29)**: ruff/format/mypy strict clean, **137 test pass** (era 133, +4 nuovi su purge canonical / httpx wrapping / feed truncated hint / regression download promote-cleanup).
+
 ### v0.2 — URL pipeline foundation + MangaDex pubblico
 
 Obiettivo: introdurre `msrt fetch <URL>` e `msrt run <URL>` con una pipeline URL reale, mantenendo MangaDex come adapter pubblico e testabile via fixture anche quando la rete MangaDex sulla macchina utente è bloccata.

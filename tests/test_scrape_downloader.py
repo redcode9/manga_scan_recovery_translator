@@ -65,6 +65,48 @@ def test_download_pages_writes_files_with_natural_names(tmp_path: Path) -> None:
         assert file.local_path.parent == tmp_path
 
 
+def test_download_pages_purges_stale_canonical_pages_from_previous_fetch(
+    tmp_path: Path,
+) -> None:
+    """Regression: a 50-page chapter followed by a 3-page chapter must
+    leave only the new 001..003 in output_dir — not 004..050 from the
+    previous run. Same class of bug as v0.1.z translated-pages cleanup,
+    on the fetch side."""
+
+    # Pre-populate the output dir as if a 5-page fetch had completed.
+    for i in range(1, 6):
+        (tmp_path / f"{i:03d}.png").write_bytes(b"old payload")
+    # And drop a non-canonical user file that should NOT be touched.
+    (tmp_path / "cover.jpg").write_bytes(b"user file")
+    (tmp_path / "msrt-run.json").write_text("{}", encoding="utf-8")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=_real_image_bytes(fmt="PNG"),
+            headers={"content-type": "image/png"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    jobs = [
+        DownloadJob(index=1, url="https://example.com/a.png"),
+        DownloadJob(index=2, url="https://example.com/b.png"),
+    ]
+
+    files = _run(download_pages(jobs, output_dir=tmp_path, transport=transport))
+
+    canonical = sorted(
+        p.name
+        for p in tmp_path.iterdir()
+        if p.is_file() and p.name not in {"cover.jpg", "msrt-run.json"}
+    )
+    assert canonical == ["001.png", "002.png"], f"Stale canonical pages leaked: {canonical}"
+    # Non-canonical user files must survive.
+    assert (tmp_path / "cover.jpg").exists()
+    assert (tmp_path / "msrt-run.json").exists()
+    assert len(files) == 2
+
+
 def test_download_pages_promotes_only_after_full_success(tmp_path: Path) -> None:
     """If even one page fails, ``output_dir`` must NOT contain stragglers
     from the successful tasks. The staging dir keeps them around for the

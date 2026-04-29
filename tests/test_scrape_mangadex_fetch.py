@@ -234,6 +234,67 @@ def test_fetch_propagates_download_failure_as_fetch_error(tmp_path: Path) -> Non
         _run(scraper.fetch(url, tmp_path))
 
 
+def test_fetch_wraps_httpx_connection_error_as_fetch_error(tmp_path: Path) -> None:
+    """When the API host is unreachable (DNS, TLS intercept, …) the
+    underlying ``httpx.ConnectError`` must be converted to ``FetchError``
+    so the CLI's blanket handler catches it instead of leaking a raw
+    traceback."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] simulated intercept",
+            request=request,
+        )
+
+    scraper = MangaDexScraper(transport=httpx.MockTransport(handler))
+    url = f"https://mangadex.org/chapter/{CHAPTER_ID}"
+
+    with pytest.raises(FetchError, match="non raggiungibile"):
+        _run(scraper.fetch(url, tmp_path))
+
+
+def test_fetch_wraps_httpx_read_timeout_as_fetch_error(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("simulated timeout", request=request)
+
+    scraper = MangaDexScraper(transport=httpx.MockTransport(handler))
+    url = f"https://mangadex.org/chapter/{CHAPTER_ID}"
+
+    with pytest.raises(FetchError, match="non raggiungibile"):
+        _run(scraper.fetch(url, tmp_path))
+
+
+def test_fetch_title_url_truncated_feed_hints_at_chapter_url(tmp_path: Path) -> None:
+    """When the feed reports more chapters than we read in v0.2b and
+    none of the read ones are eligible, the error should explicitly
+    point the user at the chapter URL form rather than guessing."""
+
+    feed_with_total = {
+        "result": "ok",
+        "response": "collection",
+        "data": [
+            {
+                "id": "aaaaaaaa-1111-1111-1111-111111111111",
+                "type": "chapter",
+                "attributes": {
+                    "chapter": "1",
+                    "translatedLanguage": "en",
+                    "externalUrl": "https://example.com/external",
+                },
+            }
+        ],
+        "limit": 100,
+        "offset": 0,
+        "total": 250,
+    }
+    handler = _build_handler(feed_payloads=[feed_with_total, feed_with_total])
+    scraper = MangaDexScraper(transport=httpx.MockTransport(handler))
+    url = f"https://mangadex.org/title/{MANGA_ID}"
+
+    with pytest.raises(FetchError, match=r"/chapter/<UUID>"):
+        _run(scraper.fetch(url, tmp_path))
+
+
 def test_pick_series_title_falls_back_to_japanese_when_english_missing(
     tmp_path: Path,
 ) -> None:

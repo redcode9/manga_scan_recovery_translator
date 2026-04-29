@@ -166,9 +166,24 @@ class MangaDexScraper(ChapterScraper):
 
 
 async def _api_get(client: httpx.AsyncClient, path: str) -> dict[str, Any]:
-    """GET helper that enforces MangaDex's ``result == "ok"`` envelope."""
+    """GET helper that enforces MangaDex's ``result == "ok"`` envelope.
 
-    response = await client.get(path)
+    Wraps every ``httpx`` failure mode (network unreachable, TLS error,
+    timeout, redirect loop, …) into ``FetchError`` so the CLI's blanket
+    ``except FetchError`` catches them instead of leaking a raw
+    traceback. This matters specifically on the user's network where an
+    SSL intercept on ``api.mangadex.org`` would otherwise surface as
+    ``httpx.ConnectError``.
+    """
+
+    try:
+        response = await client.get(path)
+    except httpx.HTTPError as exc:
+        raise FetchError(
+            f"MangaDex API non raggiungibile su {path}: {exc!r}. "
+            "Verifica connettività, DNS o eventuali intercept SSL aziendali."
+        ) from exc
+
     if response.status_code >= 400:
         raise FetchError(
             f"MangaDex API HTTP {response.status_code} su {path}: {response.text[:200]}"
@@ -189,7 +204,10 @@ async def _first_chapter_for_manga(client: httpx.AsyncClient, manga_id: str) -> 
     """Return the chapter UUID of the earliest available English chapter
     for ``manga_id``. Falls back to any-language if no English chapter
     exists. Raises ``FetchError`` when the feed has no eligible entries
-    (empty manga, or every chapter is ``externalUrl``)."""
+    (empty manga, every chapter is ``externalUrl``, or the feed is
+    paginated beyond the single page we read in v0.2b — in the latter
+    case the error explicitly points the user at the chapter URL form
+    rather than guessing)."""
 
     payload = await _api_get(
         client,
@@ -199,6 +217,8 @@ async def _first_chapter_for_manga(client: httpx.AsyncClient, manga_id: str) -> 
         f"&translatedLanguage[]={_PREFERRED_LANGUAGE}",
     )
     items = payload.get("data") or []
+    total: int | None = payload.get("total") if isinstance(payload.get("total"), int) else None
+
     if not items:
         # Retry without language filter — better than failing outright.
         payload = await _api_get(
@@ -206,6 +226,8 @@ async def _first_chapter_for_manga(client: httpx.AsyncClient, manga_id: str) -> 
             f"/manga/{manga_id}/feed?limit={_FEED_PAGE_SIZE}&order[chapter]=asc",
         )
         items = payload.get("data") or []
+        if isinstance(payload.get("total"), int):
+            total = payload.get("total")
     if not items:
         raise FetchError(f"Nessun capitolo elencato per la serie {manga_id}.")
 
@@ -213,8 +235,17 @@ async def _first_chapter_for_manga(client: httpx.AsyncClient, manga_id: str) -> 
         attrs = entry.get("attributes") or {}
         if not attrs.get("externalUrl") and entry.get("id"):
             return str(entry["id"])
+
+    truncated_hint = ""
+    if isinstance(total, int) and total > len(items):
+        truncated_hint = (
+            f" Il feed ha {total} capitoli ma sto leggendo solo i primi "
+            f"{len(items)}; passa un URL /chapter/<UUID> specifico per "
+            "saltare la selezione automatica."
+        )
     raise FetchError(
-        f"Tutti i capitoli di {manga_id} sono externalUrl; nessuno è scaricabile via MangaDex."
+        f"Tutti i capitoli letti per {manga_id} sono externalUrl, "
+        f"nessuno è scaricabile via MangaDex.{truncated_hint}"
     )
 
 

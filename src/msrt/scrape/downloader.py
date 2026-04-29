@@ -32,6 +32,7 @@ import asyncio
 import contextlib
 import hashlib
 import logging
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +45,11 @@ _LOG = logging.getLogger(__name__)
 DEFAULT_USER_AGENT = "msrt/0.0 (+local)"
 _RETRYABLE_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 _STAGING_DIR_NAME = ".staging"
+# Files matching ``001.png``, ``042.jpg``, etc. — the canonical names
+# emitted by ``download_pages``. Used to clear an output dir before
+# promoting a new batch, so a 50-page chapter doesn't leak its pages
+# into a subsequent 3-page fetch sharing the same dir.
+_CANONICAL_PAGE_RE = re.compile(r"^\d{3,}\.(?:png|jpe?g|webp|gif|avif|bin)$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -124,9 +130,12 @@ async def download_pages(
         ]
         staged = await asyncio.gather(*tasks)
 
-    # Promote: every page succeeded, move them all into the final dir
-    # and tear down the staging area. Sort by index so callers can treat
-    # the result as canonical page order.
+    # Promote: every page succeeded. First, purge any canonical pages
+    # left over from a previous fetch into this output dir — otherwise a
+    # 50-page chapter followed by a 3-page chapter would leak the
+    # 4..50 pages into the smaller chapter's output (same class of bug
+    # as v0.1.z translated-pages cleanup, on the fetch side).
+    _purge_canonical_pages(output_dir)
     staged_sorted = sorted(staged, key=lambda f: f.index)
     promoted: list[DownloadedFile] = []
     for file in staged_sorted:
@@ -260,6 +269,23 @@ def _detect_image_magic(body: bytes) -> str | None:
     if body[4:8] == b"ftyp" and body[8:12] in {b"avif", b"avis"}:
         return ".avif"
     return None
+
+
+def _purge_canonical_pages(output_dir: Path) -> None:
+    """Remove ``NNN.<ext>`` files from ``output_dir`` in place.
+
+    Only files whose name matches ``_CANONICAL_PAGE_RE`` are touched —
+    arbitrary user files (e.g. a manually saved ``cover.jpg``) and
+    subdirectories (the ``.staging`` dir, ``msrt-run.json``, …) are
+    left alone.
+    """
+
+    if not output_dir.exists():
+        return
+    for entry in output_dir.iterdir():
+        if entry.is_file() and _CANONICAL_PAGE_RE.match(entry.name):
+            with contextlib.suppress(OSError):
+                entry.unlink()
 
 
 def find_duplicate_pages(files: Sequence[DownloadedFile]) -> list[str]:
