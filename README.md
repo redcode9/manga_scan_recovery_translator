@@ -41,7 +41,11 @@ uv sync --all-extras --dev
 ./scripts/install-mitr.sh
 ```
 
-Poi aggiungi a `.env` il valore `MITR_BIN_PATH` stampato da `scripts/install-mitr.sh` e almeno una chiave API provider.
+Poi aggiungi a `.env` il valore `MITR_BIN_PATH` stampato da `scripts/install-mitr.sh` e la chiave OpenAI:
+
+```bash
+OPENAI_API_KEY=...
+```
 
 ## Utilizzo
 
@@ -57,6 +61,12 @@ msrt doctor
 
 # Avvia LiteLLM proxy locale
 msrt server up
+
+# Preflight OpenAI reale (opt-in, consuma pochi token)
+msrt doctor --model gpt --paid-smoke
+
+# Primo E2E consigliato con OpenAI
+msrt run-local ./pages --format pdf --model gpt --series "Test" --chapter 1
 ```
 
 ## Provider LLM
@@ -73,6 +83,11 @@ Il flag `--model` accetta alias multi-provider, configurati in `configs/litellm.
 | `gemini-flash` | Google | gemini-2.5-flash |
 
 Si possono aggiungere alias custom modificando `configs/litellm.yaml`.
+
+Il prossimo E2E reale del progetto usa OpenAI (`--model gpt`). L'alias `gpt`
+punta a `gpt-5.5`, che i documenti OpenAI indicano come modello latest al
+2026-04-29. L'integrazione passa da LiteLLM e dall'endpoint Chat Completions
+compatibile richiesto da MITR.
 
 ## Font
 

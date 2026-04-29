@@ -30,6 +30,7 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 | 2026-04-29 | Nessun remoto GitHub creato per ora | Non serve per v0.1 locale; nome, account/org e visibilità si decidono prima della pubblicazione o collaborazione esterna |
 | 2026-04-29 | Rimossi URL GitHub placeholder dal metadata package | Evita metadata PyPI/packaging puntati a un repository non ancora creato |
 | 2026-04-29 | `--lang-target` deve pilotare anche il target MITR | Evita CLI ingannevole: il flag non deve finire solo nel manifest/metadata |
+| 2026-04-29 | Primo E2E reale su OpenAI (`--model gpt`) | L'utente ha confermato che il prossimo test end-to-end userà API OpenAI; `gpt` punta a `gpt-5.5` |
 
 ---
 
@@ -145,6 +146,31 @@ Obiettivo: rendere `msrt server up/down/status` operativo in modo che il primo E
 - `uv run msrt server status` → exit 1 + `LiteLLM non in esecuzione (no .../litellm.pid)`.
 
 → Lo stack runtime è ora completo. Il primo E2E reale richiede solo: install MITR in venv dedicato + `ANTHROPIC_API_KEY` in `.env` + cartella di immagini.
+
+### v0.1.x — Predisposizione E2E OpenAI
+
+Decisione: il prossimo E2E reale userà OpenAI, non Anthropic. Quindi il percorso consigliato diventa `--model gpt` con `OPENAI_API_KEY`.
+
+- [x] Alias `gpt` già presente in `configs/litellm.yaml`: `openai/gpt-5.5`.
+- [x] `MODEL_ALIASES` già risolve `gpt` → provider `openai`, model ID `gpt-5.5`, env `OPENAI_API_KEY`.
+- [x] `msrt doctor --model gpt` verifica `OPENAI_API_KEY`.
+- [x] `msrt doctor --model gpt --paid-smoke` ora esegue una chiamata reale minima via LiteLLM `/v1/chat/completions`, lo stesso percorso compatibile OpenAI usato da MITR.
+- [x] README e `.env.example` aggiornati con flusso OpenAI-first.
+
+**Verifica OpenAI preflight (2026-04-29)**:
+- `uv run ruff check src tests`: All checks passed
+- `uv run ruff format --check src tests`: 27 files already formatted
+- `uv run mypy src/msrt`: Success: no issues found in 19 source files
+- `uv run pytest -q`: 28 passed in 0.24s
+- `uv run msrt doctor --model gpt`: exit 1 atteso in ambiente non configurato; segnala correttamente `OPENAI_API_KEY` mancante, MITR mancante, LiteLLM non avviato, e `litellm-bin` OK.
+
+**Prossimo E2E consigliato**:
+1. `./scripts/install-mitr.sh`
+2. Copiare in `.env` il `MITR_BIN_PATH="..."` stampato dallo script.
+3. Impostare `OPENAI_API_KEY=...` in `.env`.
+4. `msrt server up`
+5. `msrt doctor --model gpt --paid-smoke`
+6. `msrt run-local <DIR_IMG> --format pdf --model gpt --series "<SERIE>" --chapter "<N>"`
 
 ### v0.2+ — vedi piano
 *(da pianificare dopo l'E2E reale)*

@@ -41,3 +41,17 @@ Il translator `custom_openai` di MITR **non carica il glossary integrato** nel s
 | `gemini-flash` | Google | gemini-2.5-flash | sì | Cheap/veloce. |
 
 Modelli locali (v0.7+, opt-in) configurati a parte via Ollama.
+
+## E2E OpenAI
+
+Il prossimo E2E reale usa OpenAI via alias `gpt`. Il preflight consigliato è:
+
+```bash
+msrt server up
+msrt doctor --model gpt --paid-smoke
+```
+
+`--paid-smoke` invia una richiesta minima al proxy LiteLLM su
+`/v1/chat/completions`; è opt-in perché consuma crediti provider. Questo è il
+percorso giusto da verificare prima di MITR, perché MITR usa il translator
+`custom_openai` sullo stesso endpoint compatibile OpenAI.

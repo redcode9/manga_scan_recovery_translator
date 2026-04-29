@@ -13,7 +13,7 @@ from pathlib import Path
 from msrt import __version__
 from msrt.config import Settings, resolve_model_alias
 from msrt.server import find_litellm_binary, litellm_status
-from msrt.translate.litellm_proxy import check_litellm_health
+from msrt.translate.litellm_proxy import check_litellm_health, run_litellm_paid_smoke
 
 
 @dataclass(frozen=True)
@@ -43,13 +43,7 @@ def run_doctor(
         DoctorCheck("msrt", "ok", f"msrt {__version__}"),
     ]
     if paid_smoke:
-        checks.append(
-            DoctorCheck(
-                "paid-smoke",
-                "warn",
-                "Smoke test provider reale non ancora implementato in v0.1 bootstrap.",
-            )
-        )
+        checks.append(_paid_smoke_check(settings, model))
     if verbose:
         checks.append(DoctorCheck("config", "info", f"cache_dir={settings.cache_dir}"))
     return checks
@@ -167,3 +161,8 @@ def _litellm_check(settings: Settings) -> DoctorCheck:
         "warn",
         f"Proxy non in esecuzione. Avvia con `msrt server up` ({health.message}).",
     )
+
+
+def _paid_smoke_check(settings: Settings, model: str) -> DoctorCheck:
+    smoke = run_litellm_paid_smoke(settings, model=model)
+    return DoctorCheck("paid-smoke", "ok" if smoke.ok else "fail", smoke.message)
