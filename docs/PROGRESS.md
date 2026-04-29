@@ -172,6 +172,30 @@ Decisione: il prossimo E2E reale userà OpenAI, non Anthropic. Quindi il percors
 5. `msrt doctor --model gpt --paid-smoke`
 6. `msrt run-local <DIR_IMG> --format pdf --model gpt --series "<SERIE>" --chapter "<N>"`
 
+### v0.1.x — Setup wizard (`msrt setup` + `scripts/setup.sh`)
+
+Obiettivo: ridurre l'onboarding da "checklist manuale" a "un comando + qualche conferma". Il wizard guida le decisioni che restavano manuali (provider, chiavi, install MITR, avvio proxy, paid smoke).
+
+- [x] `src/msrt/setup.py`: `load_env`/`save_env` (parsing via python-dotenv, preserva commenti, quoting double-quote con escape per spazi/`$`/`#`/quote/CRLF), `PROVIDER_CATALOG` (OpenAI consigliato per il prossimo E2E, poi Anthropic, Google), `run_setup()` orchestra prereqs → .env → provider → API key → MITR → server → paid smoke → next steps.
+- [x] CLI `msrt setup` con flag `--yes`, `--no-install-mitr`, `--no-server`, `--paid-smoke`, `--project-root` (per test).
+- [x] `scripts/setup.sh` come entrypoint: `uv sync --all-extras --dev` + `uv run msrt setup`. Forwarda flag dopo `--`.
+- [x] Idempotente: chiavi e `MITR_BIN_PATH` esistenti richiedono conferma esplicita prima della sostituzione; `--yes` mantiene i valori esistenti.
+- [x] README rinnovato: setup guidato (un comando) come metodo consigliato; setup manuale documentato come alternativa.
+- [x] Test (`tests/test_setup.py`, 11 nuovi): round-trip `.env`, preservazione commenti, quoting valori speciali, alias del catalogo coerenti con `MODEL_ALIASES`, smoke `run_setup` con `--yes` skip, fail-fast quando `uv` manca.
+
+**Verifica qualità (2026-04-29 dopo setup wizard)**:
+- `uv run ruff check src tests`: All checks passed
+- `uv run ruff format --check src tests`: 28 files formatted
+- `uv run mypy src/msrt`: Success: no issues found in 20 source files
+- `uv run pytest -q`: 40 passed in 0.16s
+
+**Smoke CLI (2026-04-29)**:
+- `uv run msrt --help`: 7 sotto-comandi listati (`version`, `doctor`, `package`, `translate`, `run-local`, `setup`, `server`).
+- `uv run msrt setup --help`: tutti i flag presenti, descrizioni in italiano.
+- `uv run msrt setup --yes --no-install-mitr --no-server --project-root /tmp/msrt-test-setup`: crea `.env` da template, sceglie OpenAI di default, salta install/server, stampa next steps. Exit 0.
+
+→ L'onboarding adesso è `git clone + ./scripts/setup.sh`. L'E2E reale resta dipendente solo dall'effettivo install di MITR + chiave provider.
+
 ### v0.2+ — vedi piano
 *(da pianificare dopo l'E2E reale)*
 

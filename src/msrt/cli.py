@@ -35,6 +35,7 @@ from msrt.server import (
     start_litellm,
     stop_litellm,
 )
+from msrt.setup import run_setup
 
 LITELLM_CONFIG_PATH = Path("configs/litellm.yaml")
 
@@ -211,6 +212,42 @@ def run_local_command(
     console.print("[green]Completato[/green]")
     for output_file in manifest.output_files:
         console.print(output_file)
+
+
+@app.command()
+def setup(
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Accetta default in tutti gli step interattivi."),
+    ] = False,
+    no_install_mitr: Annotated[
+        bool,
+        typer.Option("--no-install-mitr", help="Salta l'installazione di MITR."),
+    ] = False,
+    no_server: Annotated[
+        bool,
+        typer.Option("--no-server", help="Non avviare LiteLLM al termine."),
+    ] = False,
+    paid_smoke: Annotated[
+        bool,
+        typer.Option("--paid-smoke", help="Esegui smoke paid alla fine (chiede conferma)."),
+    ] = False,
+    project_root: Annotated[
+        Path,
+        typer.Option("--project-root", help="Override radice progetto (per test)."),
+    ] = Path("."),
+) -> None:
+    """Wizard di primo setup: env, provider, MITR, LiteLLM."""
+
+    code = run_setup(
+        project_root=project_root.resolve(),
+        yes=yes,
+        install_mitr=not no_install_mitr,
+        start_server=not no_server,
+        paid_smoke=paid_smoke,
+    )
+    if code != 0:
+        raise typer.Exit(code=code)
 
 
 @app.command()

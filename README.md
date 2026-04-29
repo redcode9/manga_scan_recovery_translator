@@ -32,19 +32,42 @@ CLI Python che, partendo da una cartella di immagini manga (MVP) o da un URL di 
 
 ## Installazione
 
+**Setup guidato (consigliato)**:
+
 ```bash
 git clone <repo-url>
 cd manga_scan_recovery_translator
-cp .env.example .env  # popola le chiavi
-uv sync --all-extras --dev
-./scripts/bootstrap.sh
-./scripts/install-mitr.sh
+./scripts/setup.sh
 ```
 
-Poi aggiungi a `.env` il valore `MITR_BIN_PATH` stampato da `scripts/install-mitr.sh` e la chiave OpenAI:
+`setup.sh` esegue `uv sync --all-extras --dev` e poi avvia `msrt setup`, un wizard interattivo che:
+
+1. verifica i prerequisiti (uv, versione Python, spazio disco);
+2. crea `.env` (copiato da `.env.example` se manca);
+3. ti fa scegliere il provider LLM (OpenAI / Anthropic / Google) e ne salva la chiave in `.env`;
+4. installa MITR in un venv esterno (`~/tools/mitr` di default) chiamando `scripts/install-mitr.sh`;
+5. avvia il proxy LiteLLM con `msrt server up`;
+6. opzionalmente esegue `--paid-smoke` per validare la chiave con una chiamata reale (chiede conferma esplicita).
+
+Il wizard è idempotente: se una chiave o `MITR_BIN_PATH` esistono già, chiede prima di sovrascrivere. Per CI o reinstall scriptato:
 
 ```bash
-OPENAI_API_KEY=...
+./scripts/setup.sh -- --yes --no-server      # accetta default; non avvia il proxy
+./scripts/setup.sh -- --yes --paid-smoke     # full automation incl. chiamata paid
+msrt setup --no-install-mitr                 # se MITR è già installato
+```
+
+**Setup manuale** (se preferisci controllare ogni passo):
+
+```bash
+git clone <repo-url>
+cd manga_scan_recovery_translator
+uv sync --all-extras --dev
+cp .env.example .env  # popola le chiavi
+./scripts/install-mitr.sh
+# aggiungi a .env il MITR_BIN_PATH stampato e la chiave provider
+msrt server up
+msrt doctor --model gpt
 ```
 
 ## Utilizzo
