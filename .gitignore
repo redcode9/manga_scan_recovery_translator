@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+eggs/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+.python-version
+
+# uv / pip
+.uv-cache/
+pip-wheel-metadata/
+
+# Testing & type checking
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Environment & secrets
+.env
+.env.local
+*.local
+
+# Project output / cache
+out/
+output/
+.cache/
+~/.cache/msrt/
+*.cbz
+*.pdf
+!tests/fixtures/**/*.pdf
+!docs/**/*.pdf
+
+# Manga / scan content (never commit content not owned)
+content/
+downloads/
+tests/fixtures/images/sample-chapter/*.png
+tests/fixtures/images/sample-chapter/*.jpg
+tests/fixtures/images/sample-chapter/*.jpeg
+tests/fixtures/images/sample-chapter/*.webp
+
+# Run manifests (machine-specific)
+msrt-run.json
+
+# Playwright
+playwright-report/
+test-results/

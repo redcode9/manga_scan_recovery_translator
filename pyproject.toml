@@ -1,0 +1,102 @@
+[project]
+name = "msrt"
+version = "0.0.0"
+description = "Manga Scan Recovery Translator — wrapper CLI Python che orchestra manga-image-translator (motore esterno) per tradurre EN→IT mantenendo il layout originale, in formato CBZ o PDF."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Piero Carrieri" }]
+keywords = ["manga", "translation", "ocr", "cbz", "pdf", "italian"]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+]
+
+dependencies = [
+    "typer>=0.12",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "rich>=13.7",
+    "structlog>=24.1",
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+scrape = [
+    "playwright>=1.45",
+]
+package-pdf = [
+    "img2pdf>=0.5",
+    "pillow>=10.3",
+]
+hyphenation = [
+    "pyphen>=0.15",
+]
+
+[project.scripts]
+msrt = "msrt.cli:app"
+
+[project.urls]
+Repository = "https://github.com/piero-carrieri/manga-scan-recovery-translator"
+Issues = "https://github.com/piero-carrieri/manga-scan-recovery-translator/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "types-pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/msrt"]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "B", "UP", "C4", "SIM", "RUF",
+]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src/msrt"]
+warn_unused_ignores = true
+warn_return_any = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = ["img2pdf.*", "pyphen.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -1,0 +1,70 @@
+manga-scan-recovery-translator (msrt)
+Copyright (c) 2026 Piero Carrieri
+
+This product is licensed under the MIT License (see LICENSE).
+
+It does NOT bundle or redistribute the third-party software listed below.
+The wrapper invokes those tools as separate processes and depends on the
+user installing them in their own environment. Anyone who packages msrt
+together with these tools (e.g. an "all-in-one" container) is responsible
+for verifying and complying with each upstream license, in particular the
+GPL-3.0 obligations of manga-image-translator.
+
+================================================================================
+Required external runtime engine — NOT bundled
+================================================================================
+
+manga-image-translator (https://github.com/zyddnys/manga-image-translator)
+  License: GPL-3.0
+  Role: detection, OCR, inpainting, typesetting of manga pages.
+  Integration: invoked as an external subprocess (CLI) or HTTP server.
+  msrt does not import its modules and does not redistribute its source
+  code or container images.
+
+================================================================================
+Python dependencies (installed via the user's package manager)
+================================================================================
+
+LiteLLM (https://github.com/BerriAI/litellm) — MIT
+  Role: OpenAI-compatible proxy that routes to Anthropic, OpenAI, Google
+  and other providers.
+
+Typer (https://github.com/fastapi/typer) — MIT
+  Role: CLI framework.
+
+Pydantic / pydantic-settings (https://github.com/pydantic/pydantic) — MIT
+  Role: configuration, data models.
+
+Rich (https://github.com/Textualize/rich) — MIT
+  Role: progress bars, structured terminal output.
+
+structlog (https://www.structlog.org) — Apache-2.0 / MIT
+  Role: structured logging.
+
+HTTPX (https://www.python-httpx.org) — BSD-3-Clause
+  Role: async HTTP client for the downloader.
+
+Playwright for Python (https://github.com/microsoft/playwright-python) — Apache-2.0
+  Role (v0.2+): browser automation for site adapters.
+
+img2pdf (https://gitlab.mister-muffin.de/josch/img2pdf) — LGPL-3.0
+  Role (v0.1+, optional): image → PDF packaging.
+
+Pillow (https://python-pillow.org) — HPND
+  Role: image manipulation in custom post-processing.
+
+PyYAML (https://github.com/yaml/pyyaml) — MIT
+  Role: configuration loading.
+
+Pyphen (https://github.com/Kozea/Pyphen) — GPL-2.0+/LGPL-2.1+/MPL-1.1
+  Role (v0.6, optional): Italian hyphenation in custom typesetting.
+  When enabled, please review LGPL/MPL obligations before redistributing.
+
+================================================================================
+Fonts
+================================================================================
+
+msrt does NOT bundle any font. The CLI flag --font-path lets the user
+provide their own font file (typically OFL-licensed, e.g. Comic Neue OFL,
+Open Sans, Noto Sans). The README documents recommended OFL fonts and
+their respective licenses.
