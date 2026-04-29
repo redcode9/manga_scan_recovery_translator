@@ -23,6 +23,7 @@ GIT_URL="https://github.com/zyddnys/manga-image-translator.git"
 GIT_REF="main"
 PYTHON_VERSION="3.11"
 DRY_RUN=0
+WITH_RUSTY=0  # rusty-manga-image-translator wheel bug noto su macos-arm64; opt-in
 
 usage() {
   cat <<'EOF'
@@ -43,6 +44,8 @@ Options:
   --git-url URL       Git repository URL (default: zyddnys/manga-image-translator)
   --git-ref REF       Git ref/branch/tag to checkout (default: main)
   --python VERSION    Python version for the MITR venv (default: 3.11)
+  --with-rusty        Include rusty-manga-image-translator (opt-in;
+                      currently has a corrupted wheel on macos-arm64).
   --dry-run           Print commands without executing them
 EOF
 }
@@ -80,6 +83,10 @@ while [[ $# -gt 0 ]]; do
       fi
       PYTHON_VERSION="$2"
       shift 2
+      ;;
+    --with-rusty)
+      WITH_RUSTY=1
+      shift
       ;;
     --dry-run)
       DRY_RUN=1
@@ -126,18 +133,40 @@ echo
 
 run mkdir -p "${PREFIX}"
 
-if [[ -d "${REPO_DIR}/.git" ]]; then
-  echo "Repo già presente, aggiorno (${REPO_DIR})"
-  run git -C "${REPO_DIR}" fetch --depth 1 origin "${GIT_REF}"
-  run git -C "${REPO_DIR}" checkout "${GIT_REF}"
-  run git -C "${REPO_DIR}" reset --hard "FETCH_HEAD"
+if [[ ! -d "${REPO_DIR}/.git" ]]; then
+  # Clone full (no --depth) perché GitHub non permette fetch shallow di
+  # commit hash arbitrari (allowReachableSHA1InWant=false).
+  run git clone "${GIT_URL}" "${REPO_DIR}"
+fi
+echo "Sync repo a ${GIT_REF}"
+run git -C "${REPO_DIR}" fetch origin
+run git -C "${REPO_DIR}" checkout --detach "${GIT_REF}"
+
+CURRENT_PYTHON_VER="$("${PYTHON_BIN}" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "missing")"
+if [[ "${CURRENT_PYTHON_VER}" == "${PYTHON_VERSION}" ]]; then
+  echo "Venv già presente con Python ${PYTHON_VERSION}, riuso"
 else
-  run git clone --depth 1 --branch "${GIT_REF}" "${GIT_URL}" "${REPO_DIR}"
+  echo "Venv assente o con Python ${CURRENT_PYTHON_VER}; creo Python ${PYTHON_VERSION}"
+  run uv venv --clear --python "${PYTHON_VERSION}" "${VENV_DIR}"
 fi
 
-run uv venv --python "${PYTHON_VERSION}" "${VENV_DIR}"
-run uv pip install --python "${PYTHON_BIN}" -r "${REPO_DIR}/requirements.txt"
-run uv pip install --python "${PYTHON_BIN}" "${REPO_DIR}"
+REQ_FILE="${REPO_DIR}/requirements.txt"
+if [[ "${WITH_RUSTY}" -eq 0 ]]; then
+  FILTERED_REQ="$(mktemp -t mitr-req.XXXXXX)"
+  trap 'rm -f "${FILTERED_REQ}"' EXIT
+  echo "Filtro rusty-manga-image-translator (wheel rotto su macos-arm64; usa --with-rusty per includerlo)"
+  if [[ "${DRY_RUN}" -eq 0 ]]; then
+    grep -vE "^(--extra-index-url.*manga-image-translator-rust|rusty-manga-image-translator)" \
+      "${REQ_FILE}" > "${FILTERED_REQ}"
+  fi
+  REQ_FILE="${FILTERED_REQ}"
+fi
+run uv pip install --python "${PYTHON_BIN}" --index-strategy unsafe-best-match -r "${REQ_FILE}"
+# Editable install: il pyproject.toml di MITR non configura package discovery,
+# quindi un install "normale" pubblica solo __init__.py e i sub-package
+# (manga_translator.utils, ...) non vengono trovati. Editable mappa
+# direttamente al repo, dove tutti i sub-package esistono.
+run uv pip install --python "${PYTHON_BIN}" -e "${REPO_DIR}"
 
 echo
 echo "Verification command:"
