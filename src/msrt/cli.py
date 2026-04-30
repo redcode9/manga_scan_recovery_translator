@@ -441,6 +441,10 @@ def run(
         console.print(f"[red]Errore fetch:[/red] {exc}")
         shutil.rmtree(pending_dir, ignore_errors=True)
         raise typer.Exit(code=1) from exc
+    except Exception as exc:
+        console.print(f"[red]Errore fetch inatteso:[/red] {exc}")
+        shutil.rmtree(pending_dir, ignore_errors=True)
+        raise typer.Exit(code=1) from exc
 
     # Promote pending → canonical fetch dir based on resolved metadata.
     final_fetch_dir = (
@@ -464,6 +468,10 @@ def run(
         output_dir=str(final_fetch_dir),
         page_count=len(fetch_result.pages),
         warnings=list(fetch_result.warnings),
+        capture_mode=fetch_result.capture_mode,
+        viewport=fetch_result.viewport,
+        device_scale_factor=fetch_result.device_scale_factor,
+        manual_intervention=fetch_result.manual_intervention,
     )
 
     job = TranslationJob(

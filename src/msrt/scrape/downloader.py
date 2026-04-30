@@ -254,6 +254,17 @@ def _validated_extension(
     return _detect_image_magic(body)
 
 
+def image_extension_from_magic(body: bytes) -> str | None:
+    """Public wrapper for callers that already have image bytes locally.
+
+    Browser capture receives bytes from Playwright screenshots or from a
+    browser-context fetch; it should use the same magic-byte allowlist as
+    the HTTP downloader without depending on a private helper.
+    """
+
+    return _detect_image_magic(body)
+
+
 def _detect_image_magic(body: bytes) -> str | None:
     """Return an extension if ``body`` starts with a recognised image
     magic-byte sequence, otherwise ``None``."""

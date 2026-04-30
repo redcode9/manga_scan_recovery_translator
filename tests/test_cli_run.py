@@ -280,6 +280,32 @@ def test_run_cleans_pending_dir_when_fetch_raises_not_implemented(
     assert pending == [], f"Staging dir not cleaned up: {pending}"
 
 
+def test_run_cleans_pending_dir_when_fetch_raises_unexpected(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Browser-backed adapters can fail in ways that are not FetchError
+    yet. The CLI should still clean the pending dir and avoid a traceback."""
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _patch_fake_scraper(monkeypatch, fetch_raises=RuntimeError)
+
+    runner = CliRunner()
+    out_dir = tmp_path / "out"
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "https://fake-test.example/chapter/abc",
+            "--out",
+            str(out_dir),
+            "--i-own-rights",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Errore fetch inatteso" in result.stdout
+    pending = list((out_dir / ".msrt-fetch" / "fakemd").glob("_pending-*"))
+    assert pending == [], f"Staging dir not cleaned up: {pending}"
+
+
 def test_run_help_lists_url_orchestration_flags() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["run", "--help"])

@@ -110,6 +110,10 @@ class ManifestFetch(BaseModel):
     output_dir: str
     page_count: int
     warnings: list[str] = Field(default_factory=list)
+    capture_mode: str | None = None
+    viewport: dict[str, int] | None = None
+    device_scale_factor: float | None = None
+    manual_intervention: bool = False
 
 
 class RunManifest(BaseModel):

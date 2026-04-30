@@ -33,6 +33,8 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 | 2026-04-29 | Primo E2E reale su OpenAI (`--model gpt`) | L'utente ha confermato che il prossimo test end-to-end userà API OpenAI; `gpt` punta a `gpt-5.5` |
 | 2026-04-29 | Fallback URL automatico: adapter/download diretto → euristiche DOM → browser capture | L'obiettivo reale è `msrt run <URL>` senza scelte manuali; se non si riesce a scaricare la scan raw, il tool prova a catturare la scan visibile dal browser e poi continua con la pipeline locale |
 | 2026-04-29 | Browser capture non bypassa blocchi umani | Se compaiono login, Turnstile, captcha o verifica manuale, il tool mette in pausa, lascia completare l'utente nel browser e riprende quando la scan è visibile; niente stealth/bypass |
+| 2026-04-30 | MangaFire primario = reader-network, browser-capture solo fallback | E2E reale chapter 51: il reader espone gli URL pagina in `/ajax/read/chapter/<id>`; intercettare quella risposta è più stabile e qualitativo dello screenshot |
+| 2026-04-30 | Typesetting bubble-aware | Dentro una bubble il testo tradotto deve usare il font massimo che rientra nel poligono/bbox; fuori bubble deve rispettare la dimensione/stile originale per SFX, didascalie e testo ambientale |
 
 ---
 
@@ -560,6 +562,97 @@ I test usano un `_FakeMangaDexLikeScraper` registrato via `monkeypatch.setattr("
 
 **Quality gate (2026-04-29)**: ruff/format/mypy strict clean, **144 test pass** (era 137, +7 nuovi).
 
+### v0.3a/v0.3b/v0.3c — MangaFire browser-capture foundation (2026-04-29)
+
+Implementato il primo blocco v0.3: non ancora validato E2E live su MangaFire reale, ma integrato nel
+codice con test offline e nessuna chiamata rete in CI.
+
+**v0.3a hardening**:
+- `msrt run` ora cattura anche eccezioni inattese durante il fetch stage, ripulisce `_pending-*` e
+  mostra `Errore fetch inatteso` invece di lasciare traceback grezzo. Questo è importante per adapter
+  browser-backed, dove Playwright può sollevare errori non incapsulati.
+- README aggiornato da v0.2.b a v0.3-dev e documenta `msrt run <URL>` come capability reale.
+
+**v0.3b browser capture core** (`src/msrt/scrape/browser_capture.py`):
+- Nuovo `BrowserCaptureEngine` con import lazy di Playwright: MangaDex/local non richiedono Playwright
+  a import time.
+- Nessun bypass: user-agent dichiarato, nessun plugin stealth, nessun token forging/captcha solving.
+  Se il testo pagina contiene segnali di login/captcha/Turnstile/Cloudflare, il browser resta aperto
+  e il tool aspetta che l'utente completi manualmente; se una scan non diventa visibile entro timeout,
+  `FetchError` chiaro.
+- Candidate scan detector su `img, canvas`: filtra per dimensione minima/aspect ratio, preferisce la
+  pagina manga più grande, ignora asset piccoli/sidebar.
+- Capture path: tenta raw download via browser context (`page.request`, quindi con cookie/sessione del
+  browser) e fallback a screenshot dell'elemento scan. I byte vengono validati con la stessa allowlist
+  magic-bytes del downloader.
+- Navigazione paginata iniziale: prova click su controlli "next" e fallback `ArrowRight`; stop su
+  duplicato hash, page count `Page N/M`, o impossibilità di avanzare.
+
+**v0.3c MangaFire adapter** (`src/msrt/scrape/adapters/mangafire.py`):
+- `MangaFireScraper.matches()` riconosce `mangafire.to/read/<slug>/<lang>/chapter-<N>` e varianti
+  senza chapter esplicito.
+- `fetch()` delega a `BrowserCaptureEngine`, converte le pagine catturate in `FetchedPage`, estrae
+  metadata base da URL (`series`, `chapter_number`) e ritorna `FetchResult(strategy="mangafire-browser-capture")`.
+- `FetchResult` e `ManifestFetch` ora hanno campi opzionali per metadata browser capture:
+  `capture_mode`, `viewport`, `device_scale_factor`, `manual_intervention`.
+
+**Test offline aggiunti**:
+- `tests/test_browser_capture.py`: parsing `Page 1/45`, challenge detection, candidate selection,
+  scrittura bytes con magic-byte validation.
+- `tests/test_scrape_mangafire.py`: matching URL, registry routing, fetch con capture engine finto,
+  propagazione warnings/manual intervention/viewport, errore capture.
+- `tests/test_cli_run.py`: regression per cleanup `_pending-*` quando il fetch stage solleva
+  eccezioni inattese.
+
+**Da validare manualmente**:
+- E2E su `https://mangafire.to/read/wistoria-wand-and-swordd.02n57/en/chapter-44`.
+- Se il DOM corrente richiede selettori/navigazione specifici, patch mirata su `BrowserCaptureEngine`
+  o su `MangaFireScraper` senza cambiare la pipeline `run-local`.
+
+### v0.3d — MangaFire reader-network + E2E reale chapter 51 (2026-04-30)
+
+Il primo tentativo live con browser-capture puro su
+`https://mangafire.to/read/wistoria-wand-and-swordd.02n57/en/chapter-51` ha
+fallito: il reader caricava per un attimo e poi navigava alla home, lasciando
+`Nessun elemento scan valido trovato nel reader`. La diagnostica di rete ha
+mostrato che il sito emette comunque due XHR utili prima del redirect:
+
+1. `/ajax/read/<hid>/chapter/<lang>?vrf=...` → lista capitoli e `data-id`
+   del capitolo selezionato.
+2. `/ajax/read/chapter/<chapter_id>?vrf=...` → payload JSON con
+   `result.images`, cioè la lista ordinata degli URL pagina.
+
+Decisione implementativa:
+- `MangaFireScraper` prova prima `MangaFireReaderResolver`: apre il reader con
+  Playwright, non ricostruisce né forza token `vrf`, ma aspetta la risposta
+  pubblica emessa dal sito stesso e legge `result.images`.
+- Gli URL vengono scaricati dal downloader condiviso con `Referer`, user-agent
+  dichiarato, magic-byte validation e `min_delay_per_host=0.2`.
+- Se `reader-network` fallisce, resta il fallback automatico
+  `BrowserCaptureEngine` già implementato.
+- Fix race: leggere `response.text()` dentro l'handler `response` appena arriva,
+  perché dopo la navigazione alla home Playwright può perdere il body e sollevare
+  `Protocol error (Network.getResponseBody): No resource with given identifier found`.
+
+Verifica reale:
+- `msrt fetch ...chapter-51 --site mangafire --out out/e2e-mangafire-51-fetch`
+  → 45 JPEG scaricati, 0 duplicati SHA, dimensioni plausibili (`001.jpg`
+  960x1378, `045.jpg` 1920x1378).
+- `msrt run ...chapter-51 --site mangafire --out out/e2e-mangafire-51-run
+  --format pdf --model gpt --i-own-rights --no-gpu`
+  → completato in 22:19, output
+  `out/e2e-mangafire-51-run/wistoria-wand-and-swordd-51-it.pdf` (42 MB).
+- Manifest: `input.type=url`, `page_count=45`,
+  `fetch.strategy=mangafire-reader-network`, `capture_mode=browser-network`,
+  `manual_intervention=false`, `errors=[]`.
+
+Quality observation:
+- La pagina 001 tradotta conferma un problema qualitativo già visto nel
+  capitolo 50: alcune bubble usano un font troppo piccolo rispetto allo spazio
+  disponibile. Nuovo requisito per il postprocess custom: bubble text =
+  massimo font che rientra nel poligono/bbox; non-bubble text = preserva scala
+  originale.
+
 ### v0.2 — URL pipeline foundation + MangaDex pubblico
 
 Obiettivo: introdurre `msrt fetch <URL>` e `msrt run <URL>` con una pipeline URL reale, mantenendo MangaDex come adapter pubblico e testabile via fixture anche quando la rete MangaDex sulla macchina utente è bloccata.
@@ -623,14 +716,14 @@ Strategia a cascata per ogni URL:
 3. Browser capture automatico: Playwright apre il reader, identifica la scan visibile e salva screenshot/crop dell'elemento scan, non dell'intera finestra.
 
 Decisioni browser capture:
-- [ ] Fallback automatico: l'utente non deve scegliere `--fallback browser`; parte quando direct/generic falliscono o producono pagine incomplete.
-- [ ] Pausa manuale consentita: se il browser mostra login, Turnstile/captcha o blocco umano, `msrt` apre/lascia il browser in attesa e chiede all'utente di completare la verifica, poi riprende appena una scan valida è rilevata.
-- [ ] Nessun bypass: no stealth, no token forging, no aggiramento di Turnstile/Cloudflare. Se dopo intervento umano la scan non è visibile, fallisce con messaggio chiaro.
-- [ ] Cattura scan-only: escludere header/sidebar/sfondi; usare screenshot dell'elemento o crop calcolato dal bounding box della pagina manga.
-- [ ] Qualità: preferire immagine raw se disponibile; per screenshot usare viewport alto, `deviceScaleFactor` configurabile e validazione dimensioni minime. Loggare warning se la capture è troppo piccola per OCR affidabile.
-- [ ] Navigazione pagine: supportare reader paginato e long-strip; rilevare numero pagine quando esposto dalla UI, altrimenti fermarsi su fine capitolo/duplicato hash.
-- [ ] Manifest: registrare `strategy=browser-capture`, viewport, device scale factor, numero pagine catturate, eventuale `manual_intervention=true`.
-- [ ] Test: fixture HTML/screenshot sintetici per crop scan-only; E2E manuale su MangaFire chapter Wistoria quando disponibile.
+- [x] Fallback automatico: l'utente non deve scegliere `--fallback browser`; `MangaFireScraper` usa browser capture come strategia interna.
+- [x] Pausa manuale consentita: se il browser mostra login, Turnstile/captcha o blocco umano, `msrt` apre/lascia il browser in attesa e chiede all'utente di completare la verifica, poi riprende appena una scan valida è rilevata.
+- [x] Nessun bypass: no stealth, no token forging, no aggiramento di Turnstile/Cloudflare. Se dopo intervento umano la scan non è visibile, fallisce con messaggio chiaro.
+- [x] Cattura scan-only: escludere header/sidebar/sfondi scegliendo `img/canvas` manga più grande; usare raw browser-context quando disponibile, altrimenti screenshot dell'elemento.
+- [x] Qualità: viewport alto, `deviceScaleFactor` configurabile e validazione dimensioni minime. Warning low-res fine-grained da raffinare dopo E2E reale.
+- [x] Navigazione pagine: reader paginato iniziale con next controls/ArrowRight; stop su page count o duplicato hash. Long-strip rimandato a patch successiva se emerge dal sito reale.
+- [x] Manifest: registrare strategy, viewport, device scale factor, numero pagine catturate, eventuale `manual_intervention=true`.
+- [x] Test: test offline su candidate selection/capture metadata; E2E manuale su MangaFire chapter Wistoria ancora da eseguire.
 
 ---
 
@@ -648,9 +741,11 @@ Decisioni browser capture:
 
 - ~~MITR non installato~~ → installato via `scripts/install-mitr.sh --git-ref 3abfc47` in `~/tools/mitr/.venv` (Python 3.11).
 - ~~LiteLLM non avviato~~ → up via `msrt server up`, healthcheck OK su `gpt|gpt-5|gpt-mini` (Anthropic e Gemini unhealthy perché chiavi non in env, atteso).
-- **Scraping URL bloccato sulla macchina utente**: `api.mangadex.org` con SSL intercept (filtro DNS/proxy aziendale o ISP), `mangafire.to` con Cloudflare Turnstile + vrf token. Workaround attuale: input locale (`run-local`) con scan salvate manualmente. Sblocco: v0.2 testabile contro fixture JSON salvata; v0.3 (MangaFire) richiederà soluzione separata per Turnstile.
+- **Scraping URL parzialmente bloccato sulla macchina utente**: `api.mangadex.org` resta affetto da SSL intercept (filtro DNS/proxy aziendale o ISP). MangaFire è stato sbloccato in v0.3d tramite reader-network, senza ricostruire token o bypassare challenge.
 - **Fallback browser capture deciso**: quando raw download/generic extraction falliscono ma il reader è visibile nel browser, `msrt` potrà catturare automaticamente le scan come immagini locali e proseguire con la pipeline. Se serve verifica umana, il tool mette in pausa e aspetta l'intervento utente, senza bypass.
+- ~~MangaFire chapter 51 non scaricabile via browser-capture puro~~ → chiuso in v0.3d con reader-network: osserva la normale risposta `/ajax/read/chapter/<id>` e scarica `result.images`; browser-capture resta fallback.
 - **OCR artifacts su nomi compatti**: limite di Model48pxOCR. Mitigazione parziale via system prompt; soluzione completa con two-pass v0.6 + series glossary.
+- **Font troppo piccolo nelle bubble**: emerso leggendo il PDF del capitolo 50 e confermato visivamente su chapter 51 pagina 001. Workaround attuale: renderer MITR default. Soluzione pianificata: postprocess custom bubble-aware con auto-fit massimizzante dentro bubble e preservazione scala originale fuori bubble.
 
 ---
 
@@ -659,5 +754,6 @@ Decisioni browser capture:
 - ~~Cablare `glossary.py` al prompt~~ → chiuso in v0.1.z, automatizzato in v0.1.aa con auto-build.
 - ~~Test unit per `SubprocessEngine._command()` con la nuova struttura~~ → chiuso in v0.1.z (`tests/test_engine.py` riscritto).
 - Decidere default `GIT_REF` in `install-mitr.sh`: `main` (latest, può rompersi) vs `3abfc47` (stabile, può invecchiare).
-- Formalizzare e implementare `browser-capture` come fallback automatico di `msrt run <URL>` dopo v0.2 foundation.
+- ~~Formalizzare e implementare `browser-capture` come fallback automatico di `msrt run <URL>` dopo v0.2 foundation~~ → foundation chiusa in v0.3-dev; resta E2E reale MangaFire + raffinamento selettori.
+- Implementare postprocess typesetting bubble-aware: classificare bubble vs non-bubble, massimizzare font dentro bubble, preservare dimensione originale fuori bubble.
 - Documentare in `docs/PROVIDER_NOTES.md` il vincolo `temperature=1` di GPT-5.5 e il workaround via `gpt_config` YAML.

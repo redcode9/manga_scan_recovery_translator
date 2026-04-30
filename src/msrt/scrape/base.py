@@ -45,6 +45,10 @@ class FetchResult:
     pages: list[FetchedPage]
     output_dir: Path
     warnings: list[str] = field(default_factory=list)
+    capture_mode: str | None = None
+    viewport: dict[str, int] | None = None
+    device_scale_factor: float | None = None
+    manual_intervention: bool = False
 
 
 class FetchError(RuntimeError):

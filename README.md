@@ -2,20 +2,22 @@
 
 CLI Python che, partendo da una cartella di immagini manga (MVP) o da un URL di capitolo (estensioni successive), produce un archivio leggibile (CBZ o PDF) con il testo tradotto da inglese a italiano.
 
-> ⚠️ **Stato del progetto: in sviluppo (v0.2.b).** Questo repository è un wrapper attorno a [`manga-image-translator`](https://github.com/zyddnys/manga-image-translator) (MITR), che resta una **dipendenza esterna** installata e mantenuta dall'utente.
+> ⚠️ **Stato del progetto: in sviluppo (v0.3-dev).** Questo repository è un wrapper attorno a [`manga-image-translator`](https://github.com/zyddnys/manga-image-translator) (MITR), che resta una **dipendenza esterna** installata e mantenuta dall'utente.
 
 ## Cosa fa (e cosa non fa)
 
-**Cosa fa oggi (v0.2.b)**:
+**Cosa fa oggi (v0.3-dev)**:
 - pipeline locale `msrt run-local` validata end-to-end su capitoli reali (50 pagine in ~24 min su Mac MPS): traduzione EN→IT con MITR + LiteLLM proxy + auto-glossary di serie via LLM (cache persistente in `~/.cache/msrt/glossaries/`);
 - comando `msrt fetch <URL> --i-own-rights` scarica un capitolo da MangaDex (API ufficiale, At-Home server) in una cartella locale pronta per `run-local`;
+- comando `msrt run <URL> --i-own-rights` orchestra fetch + traduzione + packaging in un singolo passo;
+- adapter MangaFire best-effort validato su Wistoria chapter 51: usa gli URL immagine esposti dal reader e mantiene browser capture come fallback automatico;
 - impacchetta cartelle di immagini in CBZ (con `ComicInfo.xml`) o PDF;
 - proxy LiteLLM locale con `msrt server up|down|status` e diagnostica con `msrt doctor`;
 - subapp `msrt glossary {build,show,list,path,forget}` per ispezionare il cache di serie.
 
 **Cosa farà nelle prossime release**:
-- v0.2c: comando `msrt run <URL>` che combina `fetch` + `run-local` in un singolo passo.
-- v0.3+: adapter aggiuntivi best-effort (vedi [`docs/UNOFFICIAL_ADAPTERS.md`](docs/UNOFFICIAL_ADAPTERS.md)), fallback automatico con browser capture quando il download diretto non funziona, generic scraper euristico, fallback con vision LLM, post-processing custom per preservazione font/colore piena, supporto LLM locali via Ollama.
+- v0.3: hardening residuo MangaFire e regressioni su altri capitoli.
+- v0.4+: generic scraper euristico, fallback con vision LLM, post-processing custom per preservazione font/colore piena, supporto LLM locali via Ollama.
 
 **Cosa NON fa**:
 - Non promette di funzionare su "qualsiasi sito": estrazione **best-effort** con adapter ufficiali e fallback.
@@ -83,6 +85,12 @@ msrt translate ./pages --series "Test" --chapter 1 --out ./out
 # One-shot: traduci e produci PDF
 msrt run-local ./pages --format pdf --series "Test" --chapter 1
 
+# One-shot da URL MangaDex supportato
+msrt run https://mangadex.org/chapter/<UUID> --i-own-rights --format pdf
+
+# One-shot best-effort da MangaFire: prova reader-network, poi browser capture/manual check
+msrt run https://mangafire.to/read/<slug>/en/chapter-44 --i-own-rights --format pdf
+
 # Verifica prerequisiti (usa MSRT_MODEL se --model è omesso)
 msrt doctor
 
@@ -92,7 +100,7 @@ msrt server up
 # Preflight OpenAI reale (opt-in, consuma pochi token; usa MSRT_MODEL=gpt)
 msrt doctor --paid-smoke
 
-# Primo E2E consigliato con OpenAI
+# Primo E2E locale consigliato con OpenAI
 msrt run-local ./pages --format pdf --series "Test" --chapter 1
 ```
 
