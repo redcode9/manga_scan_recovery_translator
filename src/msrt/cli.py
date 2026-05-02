@@ -840,11 +840,32 @@ def ui(
         bool,
         typer.Option("--reload", help="Auto-reload del backend durante lo sviluppo."),
     ] = False,
+    build: Annotated[
+        bool,
+        typer.Option(
+            "--build/--no-build",
+            help=(
+                "Builda apps/desktop con npm run build se la dist non c'è "
+                "(default attivo). Disabilita se preferisci servire solo l'API e usare 'npm run dev'."
+            ),
+        ),
+    ] = True,
+    open_browser: Annotated[
+        bool,
+        typer.Option(
+            "--open/--no-open",
+            help="Apre il browser di sistema sulla UI dopo l'avvio.",
+        ),
+    ] = True,
 ) -> None:
-    """Avvia il backend FastAPI per la UI desktop/web (v0.4a).
+    """Avvia la UI desktop/web in un singolo comando.
+
+    Quando ``apps/desktop/dist`` è presente, il backend FastAPI serve
+    sia ``/api`` sia la SPA — un solo URL, un solo processo. Senza la
+    dist, parte il backend "headless" e lo sviluppatore può
+    affiancare ``npm run dev`` per l'HMR.
 
     Bind di default su 127.0.0.1 — non esporre questa porta in rete.
-    Apri http://127.0.0.1:<port>/docs per la documentazione interattiva.
     """
 
     try:
@@ -856,10 +877,37 @@ def ui(
         )
         raise typer.Exit(code=1) from exc
 
-    console.print(
-        f"[bold]msrt UI server[/bold] in ascolto su http://{host}:{port}\n"
-        f"[dim]Docs:[/dim] http://{host}:{port}/docs"
-    )
+    repo_root = Path(__file__).resolve().parents[2]
+    desktop_dir = repo_root / "apps" / "desktop"
+    dist_dir = desktop_dir / "dist"
+
+    if build and not dist_dir.is_dir():
+        if not desktop_dir.is_dir():
+            console.print(
+                f"[yellow]apps/desktop non trovato in {desktop_dir}. "
+                "Salto la build e avvio solo l'API.[/yellow]"
+            )
+        else:
+            _build_frontend(desktop_dir)
+
+    if dist_dir.is_dir():
+        console.print(
+            f"[bold]msrt[/bold] UI + API → http://{host}:{port}\n"
+            f"[dim]API docs:[/dim] http://{host}:{port}/docs"
+        )
+    else:
+        console.print(
+            f"[bold]msrt[/bold] API → http://{host}:{port}  "
+            f"[dim](UI non buildata; usa 'npm run dev' o riprova con --build)[/dim]"
+        )
+
+    if open_browser and dist_dir.is_dir():
+        import threading
+        import webbrowser
+
+        url = f"http://{host}:{port}/"
+        threading.Timer(1.2, lambda: webbrowser.open(url)).start()
+
     uvicorn.run(
         "msrt.ui_server:create_app",
         host=host,
@@ -867,6 +915,37 @@ def ui(
         reload=reload,
         factory=True,
     )
+
+
+def _build_frontend(desktop_dir: Path) -> None:
+    """Run ``npm install`` + ``npm run build`` in ``apps/desktop`` so
+    ``msrt ui`` can serve a fresh production bundle. Best-effort: if
+    npm isn't installed we tell the user how to do the build manually
+    and continue with API-only mode."""
+
+    import shutil
+    import subprocess
+
+    npm = shutil.which("npm")
+    if npm is None:
+        console.print(
+            "[yellow]npm non trovato. Salto la build della UI: "
+            "installa Node 18+ e rilancia, oppure builda a mano con "
+            "[bold]cd apps/desktop && npm install && npm run build[/bold].[/yellow]"
+        )
+        return
+
+    if not (desktop_dir / "node_modules").is_dir():
+        console.print("[bold]apps/desktop:[/bold] npm install…")
+        result = subprocess.run([npm, "install"], cwd=desktop_dir, check=False)
+        if result.returncode != 0:
+            console.print("[red]npm install fallito; salto la build.[/red]")
+            return
+
+    console.print("[bold]apps/desktop:[/bold] npm run build…")
+    result = subprocess.run([npm, "run", "build"], cwd=desktop_dir, check=False)
+    if result.returncode != 0:
+        console.print("[red]npm run build fallito; avvio solo l'API.[/red]")
 
 
 @app.command()

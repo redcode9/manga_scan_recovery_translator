@@ -46,6 +46,7 @@ ui = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.30",
     "sse-starlette>=2.1",
+    "keyring>=25.2",
 ]
 
 [project.scripts]

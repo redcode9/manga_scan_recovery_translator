@@ -93,6 +93,27 @@ export interface SettingsView {
   has_gemini_key: boolean;
 }
 
+export type SecretName =
+  | "OPENAI_API_KEY"
+  | "ANTHROPIC_API_KEY"
+  | "GEMINI_API_KEY";
+
+export interface SecretReportResponse {
+  name: SecretName;
+  backend: "keychain" | "dotenv";
+  message: string;
+}
+
+export interface SetupTestResult {
+  ok: boolean;
+  message: string;
+  latency_ms: number | null;
+}
+
+export interface DefaultModelResponse {
+  default_model: string;
+}
+
 export interface DoctorCheckView {
   name: string;
   status: string;
@@ -219,6 +240,27 @@ export const api = {
     request<ServerActionResponse>("/api/server/up", { method: "POST" }),
   serverDown: () =>
     request<ServerActionResponse>("/api/server/down", { method: "POST" }),
+
+  saveKey: (name: SecretName, value: string) =>
+    request<SecretReportResponse>("/api/setup/save-key", {
+      method: "POST",
+      body: JSON.stringify({ name, value }),
+    }),
+  deleteKey: (name: SecretName) =>
+    request<SecretReportResponse>("/api/setup/delete-key", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  testModel: (model: string) =>
+    request<SetupTestResult>("/api/setup/test-key", {
+      method: "POST",
+      body: JSON.stringify({ model }),
+    }),
+  setDefaultModel: (model: string) =>
+    request<DefaultModelResponse>("/api/setup/default-model", {
+      method: "POST",
+      body: JSON.stringify({ model }),
+    }),
 
   dryRun: (body: DryRunRequest) =>
     request<DryRunResponse>("/api/chapters/dry-run", {

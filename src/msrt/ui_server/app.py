@@ -30,6 +30,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from msrt import __version__
@@ -68,7 +70,21 @@ from msrt.ui_server.schemas import (
     ServerActionResponse,
     SettingsView,
 )
+from msrt.ui_server.secrets import hydrate_process_env
 from msrt.ui_server.settings_api import settings_view
+from msrt.ui_server.setup_api import (
+    DefaultModelRequest,
+    DefaultModelResponse,
+    DeleteKeyRequest,
+    SaveKeyRequest,
+    SecretReportResponse,
+    SetupTestResult,
+    TestKeyRequest,
+    remove_api_key,
+    save_api_key,
+    smoke_test_provider,
+    update_default_model,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -86,7 +102,11 @@ def create_app(
     callers leave them ``None``.
     """
 
-    resolved_settings = settings or Settings()
+    if settings is None:
+        hydrate_process_env(env_path=Path.cwd() / ".env")
+        resolved_settings = Settings()
+    else:
+        resolved_settings = settings
     boot_at = datetime.now(UTC)
 
     broker = EventBroker()
@@ -159,6 +179,28 @@ def create_app(
             message=status.message,
             log_path=str(log_file(resolved_settings)),
         )
+
+    @app.post("/api/setup/save-key", response_model=SecretReportResponse)
+    def setup_save_key(request: SaveKeyRequest) -> SecretReportResponse:
+        try:
+            return save_api_key(request, resolved_settings)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/setup/delete-key", response_model=SecretReportResponse)
+    def setup_delete_key(request: DeleteKeyRequest) -> SecretReportResponse:
+        try:
+            return remove_api_key(request, resolved_settings)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/setup/test-key", response_model=SetupTestResult)
+    def setup_test_key(request: TestKeyRequest) -> SetupTestResult:
+        return smoke_test_provider(request, resolved_settings)
+
+    @app.post("/api/setup/default-model", response_model=DefaultModelResponse)
+    def setup_default_model(request: DefaultModelRequest) -> DefaultModelResponse:
+        return update_default_model(request, resolved_settings)
 
     @app.post("/api/server/down", response_model=ServerActionResponse)
     def server_down() -> ServerActionResponse:
@@ -297,6 +339,44 @@ def create_app(
         except OSError as exc:
             raise HTTPException(status_code=500, detail=f"Impossibile aprire: {exc}") from exc
 
+    # ------------------------------------------------------------------
+    # Static UI: serve apps/desktop/dist when present so a single
+    # ``msrt ui`` command boots both API and UI. The UI build is opt-in
+    # — if the dist isn't there yet, we skip the mount and the API
+    # remains available for dev mode (Vite proxies on 5173).
+    # ------------------------------------------------------------------
+    dist = _frontend_dist_dir()
+    if dist is not None:
+        # Mount /assets as static (immutable, hashed file names) and
+        # then route the SPA: every non-API path returns index.html so
+        # client-side routing works after a deep reload.
+        assets_dir = dist / "assets"
+        if assets_dir.is_dir():
+            app.mount(
+                "/assets",
+                StaticFiles(directory=assets_dir, html=False),
+                name="assets",
+            )
+
+        index_path = dist / "index.html"
+
+        @app.get("/", include_in_schema=False)
+        def root_index() -> FileResponse:
+            return FileResponse(index_path)
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def spa_fallback(full_path: str) -> FileResponse:
+            # /api/* is already handled by the API routes above; this
+            # catch-all only fires for client-side routes (Dashboard,
+            # Library, /jobs/:id, …). Static assets like .ico/.svg
+            # served from dist root are returned directly.
+            if full_path.startswith("api/"):
+                raise HTTPException(status_code=404)
+            candidate = dist / full_path
+            if candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(index_path)
+
     return app
 
 
@@ -324,6 +404,29 @@ def _validate_job_request(request: JobCreate) -> None:
                 status_code=400,
                 detail="Manca i_own_rights=True; guardrail UX per scaricare contenuti.",
             )
+
+
+def _frontend_dist_dir() -> Path | None:
+    """Return the absolute path to ``apps/desktop/dist`` if it has
+    been built, otherwise ``None``.
+
+    Search order: env var ``MSRT_UI_DIST`` (override for packaged
+    deployments), then the canonical repo path relative to this file.
+    """
+
+    import os
+
+    override = os.environ.get("MSRT_UI_DIST")
+    if override:
+        candidate = Path(override).expanduser().resolve()
+        if (candidate / "index.html").is_file():
+            return candidate
+
+    repo_root = Path(__file__).resolve().parents[3]
+    candidate = repo_root / "apps" / "desktop" / "dist"
+    if (candidate / "index.html").is_file():
+        return candidate
+    return None
 
 
 def _native_opener_command() -> list[str] | None:

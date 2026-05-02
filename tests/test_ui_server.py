@@ -33,6 +33,10 @@ def isolated_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settin
     paths don't pollute the user's real ``~/.cache/msrt``."""
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("MSRT_DISABLE_KEYRING", "1")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     settings = Settings()
     object.__setattr__(settings, "cache_dir", tmp_path / ".cache" / "msrt")
     return settings
@@ -121,6 +125,61 @@ def test_settings_endpoint_does_not_leak_keys(
     assert payload["has_anthropic_key"] is False
     assert payload["has_gemini_key"] is False
     assert payload["default_model"]
+
+
+def test_setup_save_key_uses_dotenv_without_leaking_value(
+    isolated_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    sentinel = "sk-test-SECRET-DO-NOT-LEAK"
+
+    with _client(isolated_settings) as client:
+        saved = client.post(
+            "/api/setup/save-key",
+            json={"name": "OPENAI_API_KEY", "value": sentinel},
+        )
+        assert saved.status_code == 200, saved.text
+        settings_response = client.get("/api/settings")
+
+    assert saved.json()["backend"] == "dotenv"
+    assert sentinel not in saved.text
+    assert sentinel not in settings_response.text
+    assert settings_response.json()["has_openai_key"] is True
+    assert "OPENAI_API_KEY=" in (tmp_path / ".env").read_text(encoding="utf-8")
+
+
+def test_setup_delete_key_removes_presence_flag(
+    isolated_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with _client(isolated_settings) as client:
+        client.post(
+            "/api/setup/save-key",
+            json={"name": "OPENAI_API_KEY", "value": "sk-test-secret"},
+        )
+        deleted = client.post(
+            "/api/setup/delete-key",
+            json={"name": "OPENAI_API_KEY"},
+        )
+        settings_response = client.get("/api/settings")
+
+    assert deleted.status_code == 200, deleted.text
+    assert settings_response.json()["has_openai_key"] is False
+
+
+def test_setup_rejects_unknown_key_name(isolated_settings: Settings) -> None:
+    with _client(isolated_settings) as client:
+        response = client.post(
+            "/api/setup/save-key",
+            json={"name": "AWS_SECRET_ACCESS_KEY", "value": "secret"},
+        )
+    assert response.status_code == 400
+    assert "Chiave non riconosciuta" in response.text
 
 
 def test_doctor_endpoint_returns_structured_report(isolated_settings: Settings) -> None:

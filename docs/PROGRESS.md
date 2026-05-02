@@ -874,9 +874,9 @@ Decisione stack:
 
 Roadmap v0.4:
 - [x] v0.4a backend UI foundation: FastAPI locale, job queue, eventi, doctor/server/dry-run, library manifest. (2026-05-02)
-- [~] v0.4b web UI MVP: scaffolding Vite/React/TS/Tailwind + Dashboard + Library + Settings live (2026-05-02). NewJob/BatchPlanner/Logs sono stub in attesa del prossimo iteration step.
-- [ ] v0.4c Tauri Mac app: wrapper desktop, file picker nativo, open PDF/folder, packaging interno.
-- [ ] v0.4d setup autoconfigurante completo: keychain, MITR, Playwright, LiteLLM, paid smoke opt-in.
+- [x] v0.4b web UI MVP: scaffolding Vite/React/TS/Tailwind + Dashboard + Library + Settings live (2026-05-02), NewJob + BatchPlanner + JobProgress + Logs cablati su SSE/dry-run/jobs (2026-04-29).
+- [x] v0.4c single-command UX: backend serve la SPA buildata + auto-open browser; scaffold Tauri pronto per packaging futuro (2026-04-29).
+- [x] v0.4d setup wizard UI: 4 endpoint backend per save/delete/test/default-model + portachiavi macOS via `keyring` con fallback `.env`, pagina React `SetupWizard` con 3 provider e default model (2026-04-29).
 - [ ] v0.4e polish: dark/light mode, retry failed chapters, batch resume, diagnostics bundle redatto.
 
 ### v0.4b (parziale) — Web UI scaffolding + Dashboard/Library/Settings (2026-05-02)
@@ -947,6 +947,51 @@ cd apps/desktop && npm install && npm run dev
 - `Logs` page (v0.4e)
 
 Questi entrano nel prossimo iteration step di v0.4b.
+
+### v0.4b — Web UI MVP completa (2026-04-29)
+
+Chiusi gli stub di `Nuovo Job`, `Batch Planner`, `JobProgress` e `Logs` cablandoli sugli endpoint v0.4a:
+
+- `NewJob.tsx`: form con switch `local | url | url_batch`, opzioni avanzate collassabili, guardrail `--i-own-rights` per le rotte URL, `POST /api/jobs` → redirect a `/jobs/:id`.
+- `JobProgress.tsx`: live log via `useJobEvents` (SSE), progress bar fasi, lista output con `openPath` per aprire da Finder, mutation di cancel.
+- `BatchPlanner.tsx`: dry-run con `range`/`chapters`/`limit`, tabella capitoli con stato `output_exists`, lancio batch dietro `--i-own-rights`.
+- `Logs.tsx`: lista job e tail SSE per quello selezionato.
+
+### v0.4c — Single-command UX (2026-04-29)
+
+Obiettivo dichiarato dall'utente: "non deve servire avviare due processi". Soluzione doppia:
+
+1. **Backend serve la SPA buildata**. `app.py` espone `/assets/*` come `StaticFiles` e usa un fallback catch-all che restituisce `index.html` per qualsiasi path non `api/`. La directory di dist viene risolta tramite `MSRT_UI_DIST` (override) o `apps/desktop/dist` (default). Risultato: `msrt ui` da solo serve sia API che frontend a `127.0.0.1:4001`.
+2. **`msrt ui` auto-builda + apre il browser**. La CLI ha nuovi flag `--build/--no-build` (default `True`) e `--open/--no-open` (default `True`). Quando il bundle React non esiste o è obsoleto, lancia `npm install` + `npm run build` con stderr passato a video; se manca `npm` o la cartella `apps/desktop`, degrada gracefully e parte il backend in modalità solo-API.
+3. **Tauri shell scaffolato per il futuro**. `apps/desktop/src-tauri/` contiene `Cargo.toml` (Tauri 2 + serde), `tauri.conf.json` con `frontendDist: "../dist"` e `devUrl: http://127.0.0.1:5173`, `src/main.rs` con un comando `backend_info` di esempio. La build richiede toolchain Rust che oggi non è disponibile sulla macchina utente; il packaging `.dmg` resta v0.4 stretch.
+
+Quality gate post-v0.4c: ruff/format clean, mypy strict clean, **222 test backend passano**, `npm run build` clean a 277.85 kB JS / 4.20 kB gzip CSS.
+
+### v0.4d — Setup wizard + portachiavi (2026-04-29)
+
+Le chiavi API e il modello di default ora si configurano dalla UI senza editare `.env` a mano.
+
+**Backend nuovo**:
+- `src/msrt/ui_server/secrets.py`: store dei segreti con due backend in priorità (1) `keyring` (macOS Keychain / SecretService Linux / Credential Manager Windows) e (2) `.env` come fallback. Funzioni: `save_secret` / `get_secret` / `delete_secret` / `known_keys`. Quando il portachiavi accetta il valore, il `.env` viene **bonificato** (riga rimossa) per evitare shadow read. Il modulo onora `MSRT_DISABLE_KEYRING=1` per test e per gli utenti che preferiscono solo `.env`.
+- `src/msrt/ui_server/setup_api.py`: schemi Pydantic + handler per i 4 endpoint nuovi. La validazione del nome chiave usa `known_keys()` (whitelist `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`).
+- 4 nuovi endpoint in `app.py`:
+  - `POST /api/setup/save-key`     → salva (preferisce keychain, mirror env in-process, ritorna `{name, backend, message}` senza il valore)
+  - `POST /api/setup/delete-key`   → cancella da entrambi i backend, `os.environ.pop`
+  - `POST /api/setup/test-key`     → mini-chiamata reale al provider via `run_litellm_paid_smoke` (richiede LiteLLM up)
+  - `POST /api/setup/default-model`→ scrive `MSRT_MODEL` nel `.env` e nell'env del processo
+- `settings_view` riscritto: la presenza di una chiave si calcola da `Settings` + portachiavi, **senza** rileggere il `.env` (quello viene già caricato da `pydantic-settings`). Conseguenza: niente leak della `.env` di sviluppo nei test che usano `isolated_settings`.
+
+**Frontend nuovo**:
+- `apps/desktop/src/pages/Settings.tsx` riscritto come setup self-service: card "Provider & modello default" con input alias e bottone Salva, tre `ProviderKeyCard` (OpenAI/Anthropic/Gemini) ognuna con input password masked, pulsanti `Salva` / `Rimuovi` / `Paid smoke`, presence pill `presente|assente`, feedback in linea per ok/fail e backend usato (`keychain` vs `dotenv`). Cards informative LiteLLM/MITR/Cache restano sotto. Una sola pagina = una sola sorgente di verità per lo stato di configurazione.
+- `lib/api.ts`: tipi `SecretName`/`SecretReportResponse`/`SetupTestResult`/`DefaultModelResponse` + metodi `saveKey` / `deleteKey` / `testModel` / `setDefaultModel`.
+
+**Test**:
+- `test_setup_save_key_uses_dotenv_without_leaking_value` — sentinel non appare in nessuna risposta, `.env` viene scritto in tmp_path.
+- `test_setup_delete_key_removes_presence_flag`.
+- `test_setup_rejects_unknown_key_name` — validazione 400 con messaggio italiano.
+- `test_settings_endpoint_does_not_leak_keys` continua a passare anche con la `.env` di progetto piena.
+
+Quality gate post-v0.4d: ruff/format clean, mypy strict clean, **225 test backend passano**, `npm run build` clean.
 
 ### v0.4a.1 — Code review backend UI (2026-05-02)
 
