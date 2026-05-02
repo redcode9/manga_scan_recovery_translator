@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from msrt.config import Settings
+from msrt.models import ManifestEngine, ManifestInput, ManifestModel, RunManifest
 from msrt.scrape.base import ChapterLink, ChapterScraper, FetchResult
 from msrt.ui_server.app import create_app
 from msrt.ui_server.events import EventBroker
@@ -65,6 +66,20 @@ def _client(
 ) -> TestClient:
     app = create_app(settings=settings, job_runner=job_runner)
     return TestClient(app)
+
+
+def _fake_manifest(output_file: Path) -> RunManifest:
+    return RunManifest(
+        msrt_version="test",
+        command="fake",
+        input=ManifestInput(type="local", path="/tmp/pages", page_count=1),
+        page_order=["001.png"],
+        page_hashes={"001.png": "sha256:test"},
+        model=ManifestModel(alias="gpt", resolved_id="gpt-5.5", provider="openai"),
+        engine=ManifestEngine(type="subprocess"),
+        output_files=[str(output_file)],
+        metadata={"series": "Fake", "chapter": "1", "language_target": "it"},
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -183,6 +198,21 @@ class _MultiChapterScraper(ChapterScraper):
         raise AssertionError("dry-run must not call fetch")
 
 
+class _SkipExistingScraper(ChapterScraper):
+    name = "fakebatch"
+
+    def matches(self, url: str) -> bool:
+        return "fake-batch" in url
+
+    async def list_chapters(self, url: str) -> list[ChapterLink]:
+        return [
+            ChapterLink(url="https://fake-batch.example/c-50", chapter_number="50", series="Fake")
+        ]
+
+    async def fetch(self, url: str, output_dir: Path) -> FetchResult:
+        raise AssertionError("skip_existing should avoid fetching an already packaged chapter")
+
+
 def test_dry_run_returns_filtered_chapters(
     isolated_settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -224,6 +254,15 @@ def test_dry_run_rejects_malformed_range(
     assert response.status_code == 400
 
 
+def test_dry_run_rejects_non_positive_limit(isolated_settings: Settings) -> None:
+    with _client(isolated_settings) as client:
+        response = client.post(
+            "/api/chapters/dry-run",
+            json={"url": "https://fake-test.example/series/foo", "limit": 0},
+        )
+    assert response.status_code == 422
+
+
 # ----------------------------------------------------------------------------
 # Job lifecycle
 # ----------------------------------------------------------------------------
@@ -245,6 +284,46 @@ def test_job_validation_rejects_local_kind_with_url(isolated_settings: Settings)
             json={"kind": "local", "input_url": "https://x", "input_dir": "/tmp/x"},
         )
     assert response.status_code == 400
+
+
+def test_url_batch_job_honours_skip_existing(
+    isolated_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    scraper = _SkipExistingScraper()
+    monkeypatch.setattr("msrt.ui_server.commands.scraper_for_url", lambda _u, site="auto": scraper)
+
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "fake-50-it.pdf").write_bytes(b"%PDF-1.4\n")
+
+    with _client(isolated_settings) as client:
+        create = client.post(
+            "/api/jobs",
+            json={
+                "kind": "url_batch",
+                "input_url": "https://fake-batch.example/series/foo",
+                "out_dir": str(out),
+                "i_own_rights": True,
+                "options": {"format": "pdf", "skip_existing": True},
+            },
+        )
+        assert create.status_code == 201, create.text
+        job_id = create.json()["id"]
+        for _ in range(40):
+            final = client.get(f"/api/jobs/{job_id}").json()
+            if final["status"] not in {"queued", "running"}:
+                break
+            asyncio.run(asyncio.sleep(0.05))
+        else:
+            pytest.fail("Batch job did not finish.")
+
+    assert final["status"] == "succeeded"
+    assert final["chapters_total"] == 1
+    assert final["chapters_done"] == 1
+    assert final["chapters_failed"] == 0
+    assert final["warnings"] == ["ch.50: output già presente, capitolo saltato."]
 
 
 def test_job_lifecycle_succeeded(
@@ -279,6 +358,47 @@ def test_job_lifecycle_succeeded(
     assert final["status"] == "succeeded"
     assert final["chapters_done"] == 1
     assert final["output_files"] == ["out/fake.pdf"]
+
+
+def test_default_local_runner_emits_from_worker_thread(
+    isolated_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Regression: ``run_local`` executes in ``asyncio.to_thread``.
+    The UI bridge must capture the event loop before entering the
+    worker thread; ``asyncio.get_event_loop()`` inside the thread raises
+    on Python 3.11+ and would fail real UI jobs."""
+
+    def fake_run_local(*_args: object, **kwargs: object) -> RunManifest:
+        on_phase = kwargs["on_phase"]
+        on_log = kwargs["on_log"]
+        assert callable(on_phase)
+        assert callable(on_log)
+        on_phase("collect")
+        on_log("fake log")
+        return _fake_manifest(tmp_path / "out" / "fake.pdf")
+
+    monkeypatch.setattr("msrt.ui_server.commands.run_local", fake_run_local)
+
+    with _client(isolated_settings) as client:
+        create = client.post(
+            "/api/jobs",
+            json={
+                "kind": "local",
+                "input_dir": str(tmp_path / "pages"),
+                "out_dir": str(tmp_path / "out"),
+            },
+        )
+        assert create.status_code == 201, create.text
+        job_id = create.json()["id"]
+        for _ in range(40):
+            final = client.get(f"/api/jobs/{job_id}").json()
+            if final["status"] not in {"queued", "running"}:
+                break
+            asyncio.run(asyncio.sleep(0.05))
+    assert final["status"] == "succeeded"
+    assert final["output_files"] == [str(tmp_path / "out" / "fake.pdf")]
 
 
 def test_job_lifecycle_failed_records_error(
@@ -348,6 +468,59 @@ def test_cancel_queued_job_marks_cancelled(
             if first_state["status"] not in {"queued", "running"}:
                 break
             asyncio.run(asyncio.sleep(0.05))
+
+
+def test_cancel_running_job_does_not_stop_worker(
+    isolated_settings: Settings,
+    tmp_path: Path,
+) -> None:
+    """A running job can raise ``CancelledError`` without killing the
+    FIFO worker. The next queued job must still run."""
+
+    async def runner(ctx: JobContext) -> None:
+        if ctx.job.request.input_dir == tmp_path / "cancel-me":
+            for _ in range(50):
+                if ctx.cancel_requested:
+                    raise asyncio.CancelledError("cancelled for test")
+                await asyncio.sleep(0.01)
+            raise AssertionError("cancel request never reached runner")
+        ctx.job.chapters_total = 1
+        ctx.job.chapters_done = 1
+        ctx.job.output_files.append("out/after-cancel.pdf")
+
+    with _client(isolated_settings, runner) as client:
+        first = client.post(
+            "/api/jobs",
+            json={"kind": "local", "input_dir": str(tmp_path / "cancel-me")},
+        ).json()
+        for _ in range(40):
+            first_state = client.get(f"/api/jobs/{first['id']}").json()
+            if first_state["status"] == "running":
+                break
+            asyncio.run(asyncio.sleep(0.05))
+        else:
+            pytest.fail("First job did not start.")
+
+        cancel = client.post(f"/api/jobs/{first['id']}/cancel")
+        assert cancel.status_code == 200
+
+        second = client.post(
+            "/api/jobs",
+            json={"kind": "local", "input_dir": str(tmp_path / "after-cancel")},
+        ).json()
+        for _ in range(80):
+            second_state = client.get(f"/api/jobs/{second['id']}").json()
+            if second_state["status"] not in {"queued", "running"}:
+                break
+            asyncio.run(asyncio.sleep(0.05))
+        else:
+            pytest.fail("Worker stopped after a running-job cancellation.")
+
+        first_final = client.get(f"/api/jobs/{first['id']}").json()
+
+    assert first_final["status"] == "cancelled"
+    assert second_state["status"] == "succeeded"
+    assert second_state["output_files"] == ["out/after-cancel.pdf"]
 
 
 def test_cancel_unknown_job_returns_409(isolated_settings: Settings) -> None:

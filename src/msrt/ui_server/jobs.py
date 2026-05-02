@@ -193,7 +193,6 @@ class JobManager:
             terminal = "cancelled" if cancel_event.is_set() else "succeeded"
         except asyncio.CancelledError:
             terminal = "cancelled"
-            raise
         except Exception as exc:
             _LOG.exception("Job %s failed", job.id)
             job.errors.append(str(exc))

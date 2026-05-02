@@ -879,6 +879,25 @@ Roadmap v0.4:
 - [ ] v0.4d setup autoconfigurante completo: keychain, MITR, Playwright, LiteLLM, paid smoke opt-in.
 - [ ] v0.4e polish: dark/light mode, retry failed chapters, batch resume, diagnostics bundle redatto.
 
+### v0.4a.1 — Code review backend UI (2026-05-02)
+
+Revisione diretta della codebase dopo il commit `58bce50`.
+
+Finding chiusi:
+- `commands._invoke_run_local()` cercava l'event loop dentro il worker thread creato da `asyncio.to_thread()`. Su Python 3.11+ questo rompe i job UI reali con `RuntimeError: There is no current event loop`. Fix: cattura del loop nel coroutine caller e pass esplicito al bridge sync.
+- `JobManager._run_one()` rilanciava `asyncio.CancelledError` dopo aver marcato il job come cancellato, spegnendo il worker FIFO. Fix: la cancellazione diventa terminal state del job ma il worker continua col job successivo.
+- `url_batch` UI ignorava `options.skip_existing`, a differenza della CLI. Fix: helper `_chapter_outputs_exist()` condiviso nel comportamento, warning SSE e conteggio del capitolo come completato/skipped.
+- `DryRunRequest.limit` e `JobOptions.limit` accettavano `0` fino al layer selector. Fix: validazione Pydantic `ge=1`, risposta 422 pulita.
+- Metadata URL nel manifest UI non propagavano i campi browser-capture (`capture_mode`, `viewport`, `device_scale_factor`, `manual_intervention`). Fix: parity con CLI `msrt run`.
+
+Test aggiunti:
+- `test_default_local_runner_emits_from_worker_thread`
+- `test_cancel_running_job_does_not_stop_worker`
+- `test_url_batch_job_honours_skip_existing`
+- `test_dry_run_rejects_non_positive_limit`
+
+Quality gate locale con binari `.venv/bin`: ruff, format, mypy strict clean; **222 test pass**.
+
 Vincoli:
 - Il team UI non deve riscrivere scraping/traduzione/package in TypeScript.
 - Batch globale sempre dietro dry-run o conferma esplicita.

@@ -60,7 +60,7 @@ class JobOptions(BaseModel):
     continue_on_error: bool = True
     range_filter: str | None = None
     chapters_filter: str | None = None
-    limit: int | None = None
+    limit: int | None = Field(default=None, ge=1)
 
 
 class JobCreate(BaseModel):
@@ -162,7 +162,7 @@ class DryRunRequest(BaseModel):
     site: str = "auto"
     range_filter: str | None = None
     chapters_filter: str | None = None
-    limit: int | None = None
+    limit: int | None = Field(default=None, ge=1)
 
 
 class DryRunChapter(BaseModel):

@@ -17,7 +17,7 @@ from typing import Literal
 
 from msrt.models import ManifestFetch, RunManifest, TranslationJob
 from msrt.pipeline import run_local, slugify
-from msrt.scrape.base import FetchError, FetchResult
+from msrt.scrape.base import ChapterLink, FetchError, FetchResult
 from msrt.scrape.registry import scraper_for_url
 from msrt.scrape.selection import (
     parse_chapter_list,
@@ -71,9 +71,11 @@ async def _run_local_job(ctx: JobContext, input_dir: Path) -> None:
 
     ctx.job.chapters_total = 1
     ctx.save()
+    loop = asyncio.get_running_loop()
     manifest = await asyncio.to_thread(
         _invoke_run_local,
         ctx,
+        loop=loop,
         input_dir=input_dir,
         out_dir=out_dir,
         series=request.series or "Untitled Series",
@@ -90,6 +92,7 @@ async def _run_local_job(ctx: JobContext, input_dir: Path) -> None:
 def _invoke_run_local(
     ctx: JobContext,
     *,
+    loop: asyncio.AbstractEventLoop,
     input_dir: Path,
     out_dir: Path,
     series: str,
@@ -104,8 +107,6 @@ def _invoke_run_local(
     """Synchronous wrapper that converts pipeline callbacks into SSE
     events. Runs in a worker thread (``asyncio.to_thread``) because
     ``run_local`` itself is sync and cannot live on the event loop."""
-
-    loop = asyncio.get_event_loop()
 
     def schedule_emit(event: Event) -> None:
         # Cross-thread emit: bounce back to the loop where the broker lives.
@@ -193,12 +194,18 @@ async def _run_url_single_job(ctx: JobContext, url: str) -> None:
         output_dir=str(final_fetch_dir),
         page_count=len(result.pages),
         warnings=list(result.warnings),
+        capture_mode=result.capture_mode,
+        viewport=result.viewport,
+        device_scale_factor=result.device_scale_factor,
+        manual_intervention=result.manual_intervention,
     )
 
     job_model = _build_translation_job(options)
+    loop = asyncio.get_running_loop()
     manifest = await asyncio.to_thread(
         _invoke_run_local,
         ctx,
+        loop=loop,
         input_dir=final_fetch_dir,
         out_dir=request.out_dir,
         series=result.series,
@@ -243,6 +250,26 @@ async def _run_url_batch_job(ctx: JobContext, url: str) -> None:
     for chapter in chapters:
         if ctx.cancel_requested:
             raise asyncio.CancelledError("Batch cancelled by user")
+        if options.skip_existing and _chapter_outputs_exist(
+            chapter,
+            out=request.out_dir,
+            fmt=options.format,
+            lang_target=options.lang_target,
+        ):
+            ctx.job.chapters_done += 1
+            ctx.job.warnings.append(
+                f"ch.{chapter.chapter_number}: output già presente, capitolo saltato."
+            )
+            await ctx.emit(
+                Event(
+                    type="warning",
+                    job_id=ctx.job.id,
+                    chapter=chapter.chapter_number,
+                    message="Output già presente: capitolo saltato.",
+                )
+            )
+            ctx.save()
+            continue
         try:
             await _run_url_single_chapter(ctx, scraper.name, chapter.url)
             ctx.job.chapters_done += 1
@@ -289,12 +316,18 @@ async def _run_url_single_chapter(ctx: JobContext, site_name: str, url: str) -> 
         output_dir=str(final_fetch_dir),
         page_count=len(result.pages),
         warnings=list(result.warnings),
+        capture_mode=result.capture_mode,
+        viewport=result.viewport,
+        device_scale_factor=result.device_scale_factor,
+        manual_intervention=result.manual_intervention,
     )
 
     job_model = _build_translation_job(options)
+    loop = asyncio.get_running_loop()
     manifest = await asyncio.to_thread(
         _invoke_run_local,
         ctx,
+        loop=loop,
         input_dir=final_fetch_dir,
         out_dir=request.out_dir,
         series=result.series,
@@ -324,6 +357,24 @@ def _build_translation_job(options: JobOptions) -> TranslationJob:
         renderer=options.renderer,
         use_gpu=not options.no_gpu,
     )
+
+
+def _chapter_outputs_exist(
+    chapter: ChapterLink,
+    *,
+    out: Path,
+    fmt: str,
+    lang_target: str,
+) -> bool:
+    if not chapter.series:
+        return False
+    base = f"{slugify(chapter.series)}-{slugify(chapter.chapter_number)}-{lang_target}"
+    expected: list[Path] = []
+    if fmt in {"pdf", "both"}:
+        expected.append(out / f"{base}.pdf")
+    if fmt in {"cbz", "both"}:
+        expected.append(out / f"{base}.cbz")
+    return bool(expected) and all(path.exists() for path in expected)
 
 
 async def _record_manifest(ctx: JobContext, manifest: RunManifest) -> None:
