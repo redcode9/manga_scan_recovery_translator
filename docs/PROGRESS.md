@@ -35,6 +35,7 @@ Non aggiornato per micro-cambi di stato (es. "ora sto debuggando"). Il piano uff
 | 2026-04-29 | Browser capture non bypassa blocchi umani | Se compaiono login, Turnstile, captcha o verifica manuale, il tool mette in pausa, lascia completare l'utente nel browser e riprende quando la scan è visibile; niente stealth/bypass |
 | 2026-04-30 | MangaFire primario = reader-network, browser-capture solo fallback | E2E reale chapter 51: il reader espone gli URL pagina in `/ajax/read/chapter/<id>`; intercettare quella risposta è più stabile e qualitativo dello screenshot |
 | 2026-04-30 | Typesetting bubble-aware | Dentro una bubble il testo tradotto deve usare il font massimo che rientra nel poligono/bbox; fuori bubble deve rispettare la dimensione/stile originale per SFX, didascalie e testo ambientale |
+| 2026-05-02 | UI desktop/web pianificata come v0.4 | L'utente vuole un'esperienza MacBook autoconfigurante e semplice, ma la UI deve restare un layer sopra backend/pipeline `msrt`, non una riscrittura del motore |
 
 ---
 
@@ -766,6 +767,34 @@ Decisioni browser capture:
 - [x] Navigazione pagine: reader paginato iniziale con next controls/ArrowRight; stop su page count o duplicato hash. Long-strip rimandato a patch successiva se emerge dal sito reale.
 - [x] Manifest: registrare strategy, viewport, device scale factor, numero pagine catturate, eventuale `manual_intervention=true`.
 - [x] Test: test offline su candidate selection/capture metadata; E2E manuale su MangaFire chapter 51 eseguito e riuscito.
+
+### v0.4 — Desktop/Web UI autoconfigurante
+
+Documento di riferimento: [`docs/DESKTOP_UI_PLAN.md`](DESKTOP_UI_PLAN.md).
+
+Obiettivo: rendere `msrt` usabile su MacBook senza terminale. L'utente apre una
+app, completa setup guidato, incolla un URL o sceglie una cartella, vede dry-run
+e capitoli disponibili, lancia traduzione/batch e segue progress/log/output.
+
+Decisione stack:
+- Tauri + Vite + React/TypeScript per la UI desktop/web.
+- Backend locale Python (`src/msrt/ui_server/`) sopra le funzioni esistenti.
+- Eventi progress via SSE/WebSocket generati dalla pipeline, non parsing del
+  rendering Rich della CLI.
+- API key mai nel frontend; preferenza macOS Keychain, fallback `.env`.
+
+Roadmap v0.4:
+- [ ] v0.4a backend UI foundation: FastAPI locale, job queue, eventi, doctor/server/dry-run, library manifest.
+- [ ] v0.4b web UI MVP: dashboard, setup wizard, nuovo job, batch planner, progress live, library minima.
+- [ ] v0.4c Tauri Mac app: wrapper desktop, file picker nativo, open PDF/folder, packaging interno.
+- [ ] v0.4d setup autoconfigurante completo: keychain, MITR, Playwright, LiteLLM, paid smoke opt-in.
+- [ ] v0.4e polish: dark/light mode, retry failed chapters, batch resume, diagnostics bundle redatto.
+
+Vincoli:
+- Il team UI non deve riscrivere scraping/traduzione/package in TypeScript.
+- Batch globale sempre dietro dry-run o conferma esplicita.
+- Nessuna credenziale in localStorage, log, manifest o response API.
+- Nessun bypass di login/captcha/Turnstile.
 
 ---
 

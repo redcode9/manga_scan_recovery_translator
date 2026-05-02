@@ -19,7 +19,8 @@ CLI Python che, partendo da una cartella di immagini manga (MVP) o da un URL di 
 
 **Cosa farà nelle prossime release**:
 - v0.3: hardening residuo MangaFire, regressioni su altri capitoli e tuning del postprocess bubble-aware.
-- v0.4+: generic scraper euristico, fallback con vision LLM, post-processing strutturato con polygon/mask quando MITR espone JSON stabile, supporto LLM locali via Ollama.
+- v0.4: UI locale desktop/web per MacBook, autoconfigurante, con progress live e job history (vedi [`docs/DESKTOP_UI_PLAN.md`](docs/DESKTOP_UI_PLAN.md)).
+- v0.5+: generic scraper euristico, fallback con vision LLM, post-processing strutturato con polygon/mask quando MITR espone JSON stabile, supporto LLM locali via Ollama.
 
 **Cosa NON fa**:
 - Non promette di funzionare su "qualsiasi sito": estrazione **best-effort** con adapter ufficiali e fallback.
@@ -153,4 +154,4 @@ Lo scraping di contenuti protetti da copyright può violare i Termini di Servizi
 
 ## Contributi
 
-Progetto in sviluppo iniziale. Vedere [`docs/PROGRESS.md`](docs/PROGRESS.md) per lo stato avanzamento lavori.
+Progetto in sviluppo iniziale. Vedere [`docs/PROGRESS.md`](docs/PROGRESS.md) per lo stato avanzamento lavori e [`docs/DESKTOP_UI_PLAN.md`](docs/DESKTOP_UI_PLAN.md) per la futura UI desktop/web.
