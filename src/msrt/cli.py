@@ -827,6 +827,49 @@ def _chapter_outputs_exist(
 
 
 @app.command()
+def ui(
+    host: Annotated[
+        str,
+        typer.Option("--host", help="Bind host. Default 127.0.0.1 (no LAN exposure)."),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option("--port", help="Porta TCP del backend UI."),
+    ] = 4001,
+    reload: Annotated[
+        bool,
+        typer.Option("--reload", help="Auto-reload del backend durante lo sviluppo."),
+    ] = False,
+) -> None:
+    """Avvia il backend FastAPI per la UI desktop/web (v0.4a).
+
+    Bind di default su 127.0.0.1 — non esporre questa porta in rete.
+    Apri http://127.0.0.1:<port>/docs per la documentazione interattiva.
+    """
+
+    try:
+        import uvicorn
+    except ImportError as exc:
+        console.print(
+            "[red]Errore:[/red] dipendenze UI non installate. "
+            "Esegui [bold]uv sync --extra ui[/bold] o [bold]uv sync --all-extras[/bold]."
+        )
+        raise typer.Exit(code=1) from exc
+
+    console.print(
+        f"[bold]msrt UI server[/bold] in ascolto su http://{host}:{port}\n"
+        f"[dim]Docs:[/dim] http://{host}:{port}/docs"
+    )
+    uvicorn.run(
+        "msrt.ui_server:create_app",
+        host=host,
+        port=port,
+        reload=reload,
+        factory=True,
+    )
+
+
+@app.command()
 def setup(
     yes: Annotated[
         bool,

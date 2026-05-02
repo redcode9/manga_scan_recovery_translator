@@ -726,6 +726,65 @@ Tutti e tre richiedono `--all-chapters` esplicito; senza, exit 1 con messaggio "
 
 **Quality gate (2026-05-02)**: ruff / format / mypy strict clean, **201 test pass** (era 166).
 
+### v0.4a — Backend UI foundation (2026-05-02)
+
+Primo step del piano UI desktop. Backend FastAPI locale che riusa la pipeline esistente: niente reimplementazione di scraping/translate/package nel server, niente subprocess CLI parsing. Scope ridotto al **backend headless** — Tauri + frontend React arrivano in v0.4b/c.
+
+**Modulo nuovo `src/msrt/ui_server/`** (8 file, ~1800 righe):
+- `schemas.py` — Pydantic models per Job, Event, DryRun, Library, Doctor, Settings, ServerAction. ``SettingsView`` espone `has_*_key` booleani, **mai** i valori delle chiavi.
+- `events.py` — `EventBroker` per-job con `asyncio.Queue` per subscriber, fan-out senza blocco (drop oldest se piena), close-sentinel cross-thread sicuro.
+- `jobs.py` — `JobManager` single-worker FIFO. Persistenza JSON in `~/.cache/msrt/ui/jobs/<id>.json`. Re-loading al boot con auto-fail dei job marcati "running" (worker precedente morto). Strong-ref a fire-and-forget tasks per evitare GC.
+- `commands.py` — bridge: `run_local`/`run` chiamati come funzioni Python, `on_phase`/`on_log` callbacks convertiti in Event SSE. Funzioni sync (run_local) wrappate in `asyncio.to_thread` con `run_coroutine_threadsafe` per emit cross-thread.
+- `library.py` — scansione `out/*/msrt-run.json`, mapping deterministic `manifest_id` (sha1 path), filtra subdir nascoste (`.msrt-fetch`, `.msrt-tmp`).
+- `settings_api.py` — `SettingsView` builder.
+- `doctor_api.py` — `build_doctor_report` wraps `run_doctor` con `overall_status` aggregato.
+- `app.py` — `create_app()` factory con tutti gli endpoint, lifespan async start/shutdown, dependency injection del `job_runner` per testing.
+
+**Endpoint API** (tutti binding 127.0.0.1):
+- `GET /api/health` — version + boot time
+- `GET /api/settings` — public-safe (zero key leak verificato in test)
+- `GET /api/doctor` — `DoctorReport` strutturato
+- `GET /api/server`, `POST /api/server/{up,down}` — lifecycle LiteLLM
+- `POST /api/chapters/dry-run` — adapter `list_chapters` + selectors v0.3f
+- `POST /api/jobs`, `GET /api/jobs`, `GET /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`
+- `GET /api/jobs/{id}/events` — SSE stream via `sse-starlette`
+- `GET /api/library`, `GET /api/library/{manifest_id}`
+- `POST /api/open-path` — opener nativo (`open` su macOS, `xdg-open` su Linux)
+
+**CLI**: nuovo comando `msrt ui [--host 127.0.0.1] [--port 4001] [--reload]`. Avvia uvicorn contro `msrt.ui_server:create_app` con factory mode. Default 127.0.0.1 — esposizione LAN richiede override esplicito di `--host`.
+
+**Dipendenze**: nuovo extra `[ui]` in `pyproject.toml` con `fastapi>=0.110`, `uvicorn[standard]>=0.30`, `sse-starlette>=2.1`. Già presente in `uv sync --all-extras`.
+
+**Test (15 nuovi, 218 totali)** — `tests/test_ui_server.py`:
+- `health` — version + boot time
+- `settings` — sentinel API key non appare nel JSON, `has_*_key` booleani consistenti
+- `doctor` — checklist non vuota, `overall_status ∈ {ok,warn,fail}`, ogni check ha {name,status,message}
+- `library` — manifest popolato → entry corretta con series/chapter/strategy/model_alias
+- `dry_run` — fake adapter + selector range, payload con total/selected/site corretti
+- `dry_run` — range malformed → 400
+- `jobs` — validation rifiuta `url` senza `i_own_rights`, `local` con `input_url`
+- `jobs` — lifecycle `succeeded` (poll fino a terminale, output_files popolati)
+- `jobs` — lifecycle `failed` (errors popolati con messaggio)
+- `jobs` — listing ordinato most-recent-first
+- `jobs` — cancel su queued → status `cancelled` (con un job long-running che blocca il worker)
+- `jobs` — cancel su id sconosciuto → 409
+- `events` — broker fan-out + close sentinel
+- `events` — late-subscriber dopo close non resta appeso
+
+**Dipendenze runtime confermate**: `fastapi 0.124.4`, `uvicorn 0.33.0`, `sse-starlette 3.4.1`.
+
+**Quality gate (2026-05-02)**: ruff/format/mypy strict clean (38 source files), **218 test pass** (era 203, +15).
+
+**Note di design — cosa è dentro v0.4a e cosa NO**:
+- ✅ JobManager single-worker, persistenza JSON, cancel cooperativo.
+- ✅ SSE stream con fan-out e timeout-safe.
+- ✅ Bridge pipeline → eventi senza shellare la CLI.
+- ❌ Nessun frontend (v0.4b).
+- ❌ Nessun Tauri wrapper (v0.4c).
+- ❌ Nessuna persistenza SQLite (JSON è OK per single-worker; SQLite arriverà se il volume di job lo richiede).
+- ❌ Nessun retry endpoint (esposto in v0.4e con la failed-chapters retry).
+- ❌ Nessun Keychain integration (v0.4d).
+
 ### v0.2 — URL pipeline foundation + MangaDex pubblico
 
 Obiettivo: introdurre `msrt fetch <URL>` e `msrt run <URL>` con una pipeline URL reale, mantenendo MangaDex come adapter pubblico e testabile via fixture anche quando la rete MangaDex sulla macchina utente è bloccata.
@@ -814,7 +873,7 @@ Decisione stack:
 - API key mai nel frontend; preferenza macOS Keychain, fallback `.env`.
 
 Roadmap v0.4:
-- [ ] v0.4a backend UI foundation: FastAPI locale, job queue, eventi, doctor/server/dry-run, library manifest.
+- [x] v0.4a backend UI foundation: FastAPI locale, job queue, eventi, doctor/server/dry-run, library manifest. (2026-05-02)
 - [ ] v0.4b web UI MVP: dashboard, setup wizard, nuovo job, batch planner, progress live, library minima.
 - [ ] v0.4c Tauri Mac app: wrapper desktop, file picker nativo, open PDF/folder, packaging interno.
 - [ ] v0.4d setup autoconfigurante completo: keychain, MITR, Playwright, LiteLLM, paid smoke opt-in.

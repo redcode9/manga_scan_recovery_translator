@@ -42,6 +42,11 @@ hyphenation = [
 runtime = [
     "litellm[proxy]>=1.55",
 ]
+ui = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.30",
+    "sse-starlette>=2.1",
+]
 
 [project.scripts]
 msrt = "msrt.cli:app"
