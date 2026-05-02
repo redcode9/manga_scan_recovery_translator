@@ -432,6 +432,13 @@ def run(
             help="In --all-chapters prosegue sugli altri capitoli se uno fallisce.",
         ),
     ] = True,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="In --all-chapters lista i capitoli che verrebbero processati senza scaricare/tradurre.",
+        ),
+    ] = False,
     i_own_rights: Annotated[
         bool,
         typer.Option(
@@ -480,6 +487,7 @@ def run(
             site=site,
             skip_existing=skip_existing,
             continue_on_error=continue_on_error,
+            dry_run=dry_run,
         )
         return
 
@@ -633,6 +641,7 @@ def _run_all_chapters(
     site: str,
     skip_existing: bool,
     continue_on_error: bool,
+    dry_run: bool,
 ) -> None:
     try:
         scraper = scraper_for_url(url, site=site)
@@ -649,6 +658,28 @@ def _run_all_chapters(
         f"[green]✓[/green] Trovati [bold]{len(chapters)}[/bold] capitoli con "
         f"adapter [bold]{scraper.name}[/bold]."
     )
+    if dry_run:
+        console.print(
+            "[yellow]DRY RUN[/yellow] nessun download, nessuna traduzione, nessun file scritto."
+        )
+        for index, chapter in enumerate(chapters, start=1):
+            marker = (
+                "skip"
+                if skip_existing
+                and _chapter_outputs_exist(
+                    chapter,
+                    out=out,
+                    fmt=fmt,
+                    lang_target=lang_target,
+                )
+                else "todo"
+            )
+            title = f" — {chapter.title}" if chapter.title else ""
+            console.print(
+                f"{index:>3}. [{marker}] ch. {chapter.chapter_number}{title}\n     {chapter.url}"
+            )
+        return
+
     failures: list[tuple[ChapterLink, str]] = []
     completed = 0
     skipped = 0

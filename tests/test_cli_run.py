@@ -351,8 +351,36 @@ def test_run_help_lists_url_orchestration_flags() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["run", "--help"])
     assert result.exit_code == 0
-    for flag in ("--site", "--i-own-rights", "--format", "--model", "--all-chapters"):
+    for flag in ("--site", "--i-own-rights", "--format", "--model", "--all-chapters", "--dry-run"):
         assert flag in result.stdout
+
+
+def test_run_all_chapters_dry_run_lists_without_fetching(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    fake = _patch_fake_scraper(monkeypatch)
+    captured: dict[str, object] = {}
+    _patch_run_local(monkeypatch, captured)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "https://fake-test.example/chapter/abc",
+            "--all-chapters",
+            "--dry-run",
+            "--out",
+            str(tmp_path / "out"),
+            "--i-own-rights",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "DRY RUN" in result.stdout
+    assert "ch. 0" in result.stdout
+    assert "ch. 1" in result.stdout
+    assert fake.fetch_urls == []
+    assert captured == {}
 
 
 def test_run_all_chapters_orchestrates_every_chapter(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
