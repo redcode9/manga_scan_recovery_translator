@@ -245,7 +245,7 @@ Verifica post-fix: `curl http://localhost:4000/health` HTTP 200 con il proxy anc
 
 Eseguito il primo E2E reale `msrt run-local` su 3 pagine di Wistoria capitolo 44 (scan salvate manualmente da browser, scraping URL rimandato a v0.2/v0.3 per blocchi di rete su MangaDex e Cloudflare su MangaFire). Pipeline funziona end-to-end e produce `out/wistoria-44-it.pdf`. Durante il debug sono emerse decisioni tecniche significative sul wrapping di MITR.
 
-**Pin commit MITR**: `3abfc47` (giugno 2025, pre-rust). La `main` ha `import rusty_manga_image_translator` hard-coded che fallisce su macos-arm64 (wheel corrotto). Il commit pre-rust gira pulito. Salvato in `scripts/install-mitr.sh` come `GIT_REF` di default? → no, default resta `main` ma è documentato come override consigliato. **Da decidere**: se pinnare `3abfc47` come default. Per ora workaround: passare `--git-ref 3abfc47` a `install-mitr.sh`.
+**Pin commit MITR**: `3abfc47` (giugno 2025, pre-rust). La `main` ha `import rusty_manga_image_translator` hard-coded che fallisce su macos-arm64 (wheel corrotto). Il commit pre-rust gira pulito. In v0.3f è diventato il `GIT_REF` di default in `scripts/install-mitr.sh`; `--git-ref main` resta opt-in per seguire upstream.
 
 **Struttura CLI MITR scoperta**: la documentazione del piano è obsoleta. La forma corretta è:
 
@@ -341,7 +341,7 @@ Fix:
 **Carry-over chiusi**:
 - ✅ Glossary cablata al prompt (era TODO esplicito).
 - ✅ Test unit per `SubprocessEngine._command()` con la nuova struttura.
-- ⏳ Pinning `GIT_REF` MITR a `3abfc47`: ancora da decidere.
+- ✅ Pinning `GIT_REF` MITR a `3abfc47`: chiuso in v0.3f.
 - ⏳ `docs/PROVIDER_NOTES.md` con vincolo `temperature=1` GPT-5.5: ancora da scrivere.
 
 ### v0.1.aa — Auto-glossary via LLM (2026-04-29)
@@ -854,7 +854,7 @@ Vincoli:
 
 - ~~Cablare `glossary.py` al prompt~~ → chiuso in v0.1.z, automatizzato in v0.1.aa con auto-build.
 - ~~Test unit per `SubprocessEngine._command()` con la nuova struttura~~ → chiuso in v0.1.z (`tests/test_engine.py` riscritto).
-- Decidere default `GIT_REF` in `install-mitr.sh`: `main` (latest, può rompersi) vs `3abfc47` (stabile, può invecchiare).
+- ~~Decidere default `GIT_REF` in `install-mitr.sh`~~ → chiuso in v0.3f: default `3abfc47`, `--git-ref main` opt-in.
 - ~~Formalizzare e implementare `browser-capture` come fallback automatico di `msrt run <URL>` dopo v0.2 foundation~~ → foundation chiusa in v0.3-dev; resta E2E reale MangaFire + raffinamento selettori.
 - ~~Implementare mitigazione bubble-aware per testo troppo piccolo~~ → chiuso in v0.3e come bridge image-level. Resta il postprocess typesetting pieno v0.6 basato su polygon/mask/rotation.
 - Documentare in `docs/PROVIDER_NOTES.md` il vincolo `temperature=1` di GPT-5.5 e il workaround via `gpt_config` YAML.

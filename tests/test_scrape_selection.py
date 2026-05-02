@@ -38,6 +38,8 @@ def test_parse_chapter_range_strips_whitespace() -> None:
         "50-",
         "-51",
         "abc-def",
+        "nan-51",
+        "50-inf",
         "50-51-52",
         "51-50",  # reversed
     ],

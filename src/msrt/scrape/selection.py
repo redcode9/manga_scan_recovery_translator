@@ -19,6 +19,8 @@ so they can be unit-tested without the CLI in the loop.
 
 from __future__ import annotations
 
+import math
+
 from msrt.scrape.base import ChapterLink
 
 
@@ -44,6 +46,8 @@ def parse_chapter_range(raw: str) -> tuple[float, float]:
         raise ValueError(
             f"--range con estremi non numerici: {raw!r}. Atteso numeri tipo '50-51' o '50.5-51.0'."
         ) from exc
+    if not math.isfinite(start) or not math.isfinite(end):
+        raise ValueError(f"--range con estremi non finiti: {raw!r}. Usa numeri reali tipo '50-51'.")
     if start > end:
         raise ValueError(f"--range invertito: {raw!r}. start={start} > end={end}.")
     return start, end
