@@ -696,6 +696,36 @@ Quality gate:
 - `uv run mypy src/msrt` OK (`28 source files`)
 - `uv run pytest -q` OK (`165 passed`)
 
+### v0.3f — Batch safety: chapter selectors + postprocess hardening (2026-05-02)
+
+Pre-requisito v0.4: la UI futura dovrà costruire batch controllati ("primi 2", "range 50-51", "solo 51.1") senza inventarsi logica sua. Tre selettori ora vivono nella CLI come primitive testabili e isolate dal resto del flusso.
+
+**Nuovi flag su `msrt run --all-chapters`** (pure orchestrazione, niente cambi di scraping):
+- `--range "50-51"` — range numerico inclusivo. Capitoli non-numerici (`extra`, `omake`) vengono saltati dal filtro range.
+- `--chapters "50,51,51.1"` — lista esplicita per match esatto su `chapter_number`. Unico modo di prendere decimali singoli senza sweepare i vicini.
+- `--limit N` — primi N **dopo** range/chapters. Combinabile.
+
+Tutti e tre richiedono `--all-chapters` esplicito; senza, exit 1 con messaggio "richiedono --all-chapters" così l'utente non pensa di aver fatto qualcosa che non ha fatto. Compatibili con `--dry-run`: il listing mostra solo i capitoli filtrati e include `selezionati N di M` per visibilità immediata.
+
+**Nuovo modulo** `src/msrt/scrape/selection.py` — funzioni pure `parse_chapter_range`, `parse_chapter_list`, `select_chapters`. Niente I/O, niente asyncio: testabili senza CLI in mezzo. Errori parser tradotti in `ValueError` con messaggi user-readable; il CLI li intercetta e diventa exit 1 prima del fetch.
+
+**Postprocess bubble-aware — guard anti-falsi-positivi** (`src/msrt/translate/postprocess.py`):
+- Aspect-ratio guard: bubble plausibili hanno `0.30 ≤ width/height ≤ 3.50`. Strisce orizzontali (banner, bordi che hanno superato l'edge check) e gutter verticali sono ora rifiutati.
+- Fill-ratio guard: `area / (bbox_w * bbox_h) ≥ 0.55`. Forme complesse white tipo SFX-starburst, cluster sparso di pixel uniti da spilloni, hanno fill-ratio basso e sarebbero un cattivo target per blind-scaling.
+- Calcolo del fill-ratio in spazio downscaled (consistente con `area`), così il valore non dipende dal `downscale=4` interno.
+
+**Pin MITR `GIT_REF` di default a `3abfc47`** (`scripts/install-mitr.sh`):
+- Fino a ieri il default era `main`. Su macOS arm64 le commit recenti tirano dentro `rusty_manga_image_translator` (wheel rotto) e `main` ha un import hard di quel modulo.
+- Il commit `3abfc47` (giugno 2025, pre-rust) è quello che ha fatto girare l'E2E reale di Wistoria. Pinnarlo come default rende il primo `setup.sh` riproducibile.
+- `--git-ref main` resta disponibile come opt-in upstream-tracking quando MITR avrà sistemato il problema rust.
+
+**Test (35 nuovi, totale 201 pass)**:
+- `tests/test_scrape_selection.py` — 14 test sui selectors puri: parse range (decimali, whitespace, malformed×7), parse list (basic, whitespace, empty), select_chapters (range filter, non-numeric skip, chapter_list, limit, ordine, combinazioni, error su limit<1, preservazione metadata).
+- `tests/test_cli_run_selectors.py` — 9 test CLI: rifiuto guardrail dei tre flag senza `--all-chapters`, rifiuto malformed range, dry-run filter (range, list, limit, range+limit), errore quando i selettori scartano tutto.
+- `tests/test_postprocess.py` — 3 nuovi: skip thin horizontal strip (aspect-ratio guard), skip low-fill starburst (fill-ratio guard), no-op on dark page (no white components).
+
+**Quality gate (2026-05-02)**: ruff / format / mypy strict clean, **201 test pass** (era 166).
+
 ### v0.2 — URL pipeline foundation + MangaDex pubblico
 
 Obiettivo: introdurre `msrt fetch <URL>` e `msrt run <URL>` con una pipeline URL reale, mantenendo MangaDex come adapter pubblico e testabile via fixture anche quando la rete MangaDex sulla macchina utente è bloccata.

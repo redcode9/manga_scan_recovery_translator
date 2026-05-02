@@ -11,16 +11,20 @@
 # import or redistribute it.
 #
 # Usage:
-#   ./scripts/install-mitr.sh
+#   ./scripts/install-mitr.sh                    # default: pinned stable 3abfc47
 #   ./scripts/install-mitr.sh --prefix "$HOME/tools/mitr"
-#   ./scripts/install-mitr.sh --git-ref main
+#   ./scripts/install-mitr.sh --git-ref main     # opt-in to track upstream
 #   ./scripts/install-mitr.sh --dry-run
 
 set -euo pipefail
 
 PREFIX="${HOME}/tools/mitr"
 GIT_URL="https://github.com/zyddnys/manga-image-translator.git"
-GIT_REF="main"
+# Pinned to a known-good commit (June 2025, pre-rust). The rusty wheel
+# on macOS arm64 is broken on later commits, and main has a hard import
+# of rusty_manga_image_translator. Override with --git-ref main to track
+# upstream once that's resolved.
+GIT_REF="3abfc47"
 PYTHON_VERSION="3.11"
 DRY_RUN=0
 WITH_RUSTY=0  # rusty-manga-image-translator wheel bug noto su macos-arm64; opt-in
@@ -42,7 +46,7 @@ Usage:
 Options:
   --prefix PATH       Install MITR venv + repo under PATH (default: $HOME/tools/mitr)
   --git-url URL       Git repository URL (default: zyddnys/manga-image-translator)
-  --git-ref REF       Git ref/branch/tag to checkout (default: main)
+  --git-ref REF       Git ref/branch/tag to checkout (default: 3abfc47, pinned stable)
   --python VERSION    Python version for the MITR venv (default: 3.11)
   --with-rusty        Include rusty-manga-image-translator (opt-in;
                       currently has a corrupted wheel on macos-arm64).

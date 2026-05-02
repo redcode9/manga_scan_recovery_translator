@@ -124,7 +124,20 @@ def _white_components(image: Image.Image, *, downscale: int = 4) -> list[_Compon
             min(width, (max_x + 1) * downscale),
             min(height, (max_y + 1) * downscale),
         )
-        if _is_bubble_candidate(bbox, area, touches_edge, width, height):
+        # ``area`` and the (max_*-min_*) bbox are both in downscaled
+        # space, so the fill ratio is a direct number that doesn't
+        # depend on the downscale factor.
+        small_w = max_x - min_x + 1
+        small_h = max_y - min_y + 1
+        fill_ratio = area / max(1, small_w * small_h)
+        if _is_bubble_candidate(
+            bbox,
+            area,
+            touches_edge,
+            width,
+            height,
+            fill_ratio=fill_ratio,
+        ):
             components.append(_Component(bbox=bbox, area=area, touches_edge=touches_edge))
 
     return sorted(components, key=lambda comp: comp.area, reverse=True)
@@ -143,18 +156,42 @@ def _neighbors(x: int, y: int, width: int, height: int) -> tuple[int, ...]:
     return tuple(values)
 
 
+_MIN_BUBBLE_ASPECT_RATIO = 0.30
+_MAX_BUBBLE_ASPECT_RATIO = 3.50
+_MIN_BUBBLE_FILL_RATIO = 0.55
+
+
 def _is_bubble_candidate(
     bbox: tuple[int, int, int, int],
     area: int,
     touches_edge: bool,
     page_width: int,
     page_height: int,
+    *,
+    fill_ratio: float = 1.0,
 ) -> bool:
+    """Decide whether a connected white blob looks like a manga bubble.
+
+    Tightened in v0.3f with two extra guards that reduce false positives
+    on pages without speech bubbles (full-page panels, dark scenes,
+    flashbacks with white frames):
+
+    * **aspect ratio** — speech bubbles are roughly oval/squarish; very
+      thin strips (banners, page borders that survived the edge check)
+      and very tall slivers (gutters between panels) are rejected.
+    * **fill ratio** — bubbles fill most of their own bounding box. A
+      complex white shape (e.g. a starburst SFX panel, a sparse cluster
+      of white pixels) has a low fill ratio and would be a bad target
+      for blind text scaling.
+    """
+
     if touches_edge:
         return False
     x0, y0, x1, y1 = bbox
     width = x1 - x0
     height = y1 - y0
+    if width <= 0 or height <= 0:
+        return False
     if width * height < 12_000:
         return False
     if width < max(42, int(page_width * 0.045)):
@@ -163,7 +200,13 @@ def _is_bubble_candidate(
         return False
     if width * height > page_width * page_height * 0.25:
         return False
-    return area >= 80
+    if area < 80:
+        return False
+
+    aspect_ratio = width / height
+    if aspect_ratio < _MIN_BUBBLE_ASPECT_RATIO or aspect_ratio > _MAX_BUBBLE_ASPECT_RATIO:
+        return False
+    return fill_ratio >= _MIN_BUBBLE_FILL_RATIO
 
 
 def _scale_text_in_component(

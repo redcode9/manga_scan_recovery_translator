@@ -34,6 +34,11 @@ from msrt.pipeline import (
 )
 from msrt.scrape.base import ChapterLink, FetchError, FetchResult
 from msrt.scrape.registry import scraper_for_url
+from msrt.scrape.selection import (
+    parse_chapter_list,
+    parse_chapter_range,
+    select_chapters,
+)
 from msrt.server import (
     LiteLLMUnavailableError,
     ServerStatus,
@@ -439,6 +444,27 @@ def run(
             help="In --all-chapters lista i capitoli che verrebbero processati senza scaricare/tradurre.",
         ),
     ] = False,
+    range_filter: Annotated[
+        str | None,
+        typer.Option(
+            "--range",
+            help="Solo capitoli nel range numerico inclusivo, es. '50-51'. Richiede --all-chapters.",
+        ),
+    ] = None,
+    chapters_filter: Annotated[
+        str | None,
+        typer.Option(
+            "--chapters",
+            help="Lista esplicita di capitoli, es. '50,51,51.1'. Richiede --all-chapters.",
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        typer.Option(
+            "--limit",
+            help="Processa solo i primi N capitoli, dopo --range/--chapters. Richiede --all-chapters.",
+        ),
+    ] = None,
     i_own_rights: Annotated[
         bool,
         typer.Option(
@@ -470,7 +496,22 @@ def run(
         raise typer.Exit(code=1)
 
     renderer_choice = _renderer(renderer)
+
+    # Selectors only make sense with --all-chapters; reject otherwise so the
+    # user doesn't think they did something they didn't.
+    selectors_used = (range_filter, chapters_filter, limit)
+    if any(value is not None for value in selectors_used) and not all_chapters:
+        console.print("[red]Errore:[/red] --range/--chapters/--limit richiedono --all-chapters.")
+        raise typer.Exit(code=1)
+
     if all_chapters:
+        try:
+            range_parsed = parse_chapter_range(range_filter) if range_filter else None
+            chapters_parsed = parse_chapter_list(chapters_filter) if chapters_filter else None
+            limit_parsed = _validated_limit(limit)
+        except ValueError as exc:
+            console.print(f"[red]Errore selettore capitoli:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
         _run_all_chapters(
             url=url,
             out=out,
@@ -488,6 +529,9 @@ def run(
             skip_existing=skip_existing,
             continue_on_error=continue_on_error,
             dry_run=dry_run,
+            range_filter=range_parsed,
+            chapter_list=chapters_parsed,
+            limit=limit_parsed,
         )
         return
 
@@ -642,6 +686,9 @@ def _run_all_chapters(
     skip_existing: bool,
     continue_on_error: bool,
     dry_run: bool,
+    range_filter: tuple[float, float] | None = None,
+    chapter_list: set[str] | None = None,
+    limit: int | None = None,
 ) -> None:
     try:
         scraper = scraper_for_url(url, site=site)
@@ -654,9 +701,34 @@ def _run_all_chapters(
         console.print("[red]Errore:[/red] nessun capitolo trovato.")
         raise typer.Exit(code=1)
 
+    total_found = len(chapters)
+    chapters = select_chapters(
+        chapters,
+        range_filter=range_filter,
+        chapter_list=chapter_list,
+        limit=limit,
+    )
+    if not chapters:
+        criteria_parts: list[str] = []
+        if range_filter is not None:
+            criteria_parts.append(f"range={range_filter[0]}-{range_filter[1]}")
+        if chapter_list is not None:
+            criteria_parts.append(f"chapters={sorted(chapter_list)}")
+        if limit is not None:
+            criteria_parts.append(f"limit={limit}")
+        criteria = ", ".join(criteria_parts) or "(nessuno)"
+        console.print(
+            f"[red]Errore:[/red] i selettori ({criteria}) non hanno selezionato "
+            f"alcun capitolo dei {total_found} trovati."
+        )
+        raise typer.Exit(code=1)
+
+    suffix = (
+        f" (selezionati {len(chapters)} di {total_found})" if len(chapters) != total_found else ""
+    )
     console.print(
-        f"[green]✓[/green] Trovati [bold]{len(chapters)}[/bold] capitoli con "
-        f"adapter [bold]{scraper.name}[/bold]."
+        f"[green]✓[/green] Trovati [bold]{total_found}[/bold] capitoli con "
+        f"adapter [bold]{scraper.name}[/bold]{suffix}."
     )
     if dry_run:
         console.print(
@@ -893,6 +965,14 @@ def _renderer(value: str) -> Literal["mitr-default", "mitr-manga2eng", "custom-p
             f"renderer non supportato: {value!r}. Usa: {', '.join(sorted(allowed))}."
         )
     return cast(Literal["mitr-default", "mitr-manga2eng", "custom-postprocess"], normalized)
+
+
+def _validated_limit(limit: int | None) -> int | None:
+    if limit is None:
+        return None
+    if limit < 1:
+        raise ValueError(f"--limit deve essere >= 1, ricevuto {limit}.")
+    return limit
 
 
 def _phase_total(
