@@ -44,7 +44,7 @@ export function SettingsPage() {
         </Link>
       </header>
 
-      {settings.isLoading && <p className="text-sm text-slate-500">Caricamento...</p>}
+      {settings.isLoading && <p className="text-sm text-slate-500">Caricamento…</p>}
       {settings.error && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
           {settings.error.message}

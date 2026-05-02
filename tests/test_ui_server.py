@@ -30,9 +30,12 @@ from msrt.ui_server.schemas import Event
 @pytest.fixture
 def isolated_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     """A Settings instance with cache_dir routed to tmp so jobs/library
-    paths don't pollute the user's real ``~/.cache/msrt``."""
+    paths don't pollute the user's real ``~/.cache/msrt`` and with
+    ``MSRT_HOME`` pointing at tmp so any ``.env`` write the test
+    triggers lands in tmp instead of the developer's real repo."""
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("MSRT_HOME", str(tmp_path))
     monkeypatch.setenv("MSRT_DISABLE_KEYRING", "1")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -783,6 +786,81 @@ def test_retry_failed_rejects_non_batch_jobs(
 
     assert retry.status_code == 409
     assert "batch" in retry.json()["detail"].lower()
+
+
+def test_zombie_queued_jobs_are_cancelled_on_restart(
+    isolated_settings: Settings, tmp_path: Path
+) -> None:
+    """If the previous backend process accepted a job but died before
+    the worker picked it up, the next process must not leave it
+    ``queued`` forever. We simulate that by writing a queued job file
+    to the storage dir before booting the app."""
+
+    storage = tmp_path / ".cache" / "msrt" / "ui" / "jobs"
+    storage.mkdir(parents=True, exist_ok=True)
+    queued_blob = {
+        "id": "zombie-queued-1",
+        "kind": "local",
+        "status": "queued",
+        "request": {"kind": "local", "input_dir": str(tmp_path / "x")},
+        "current_phase": "queued",
+        "chapters_total": 0,
+        "chapters_done": 0,
+        "chapters_failed": 0,
+        "output_files": [],
+        "manifest_paths": [],
+        "errors": [],
+        "warnings": [],
+        "created_at": "2026-04-29T22:00:00+00:00",
+        "started_at": None,
+        "finished_at": None,
+    }
+    (storage / "zombie-queued-1.json").write_text(json.dumps(queued_blob), encoding="utf-8")
+
+    with _client(isolated_settings) as client:
+        body = client.get("/api/jobs/zombie-queued-1").json()
+
+    assert body["status"] == "cancelled"
+    assert body["finished_at"] is not None
+    assert any("Backend riavviato" in w for w in body["warnings"])
+
+
+def test_zombie_running_jobs_are_failed_on_restart(
+    isolated_settings: Settings, tmp_path: Path
+) -> None:
+    """Sibling check: ``running`` zombies become ``failed`` (existing
+    behaviour, pinned here so neither half regresses silently)."""
+
+    storage = tmp_path / ".cache" / "msrt" / "ui" / "jobs"
+    storage.mkdir(parents=True, exist_ok=True)
+    running_blob = {
+        "id": "zombie-running-1",
+        "kind": "url_batch",
+        "status": "running",
+        "request": {
+            "kind": "url_batch",
+            "input_url": "https://example.test/x",
+            "i_own_rights": True,
+        },
+        "current_phase": "translate",
+        "chapters_total": 1,
+        "chapters_done": 0,
+        "chapters_failed": 0,
+        "output_files": [],
+        "manifest_paths": [],
+        "errors": [],
+        "warnings": [],
+        "created_at": "2026-04-29T22:00:00+00:00",
+        "started_at": "2026-04-29T22:00:01+00:00",
+        "finished_at": None,
+    }
+    (storage / "zombie-running-1.json").write_text(json.dumps(running_blob), encoding="utf-8")
+
+    with _client(isolated_settings) as client:
+        body = client.get("/api/jobs/zombie-running-1").json()
+
+    assert body["status"] == "failed"
+    assert any("Backend interrotto" in e for e in body["errors"])
 
 
 def test_retry_failed_rejects_jobs_without_failed_chapters(

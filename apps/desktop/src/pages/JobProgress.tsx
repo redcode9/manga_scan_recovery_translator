@@ -228,7 +228,7 @@ function SummaryCard({ job, events }: { job: Job; events: JobEvent[] }) {
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-slate-100">
             <div
-              className="h-full bg-sky-500 transition-all"
+              className="h-full bg-sky-500 transition-[width] duration-200 ease-out"
               style={{ width: `${pct}%` }}
             />
           </div>

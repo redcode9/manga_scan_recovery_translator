@@ -93,8 +93,6 @@ from msrt.ui_server.setup_api import (
 
 _LOG = logging.getLogger(__name__)
 
-LITELLM_CONFIG_PATH = litellm_config_path()
-
 
 def create_app(
     *,
@@ -173,7 +171,7 @@ def create_app(
     @app.post("/api/server/up", response_model=ServerActionResponse)
     def server_up() -> ServerActionResponse:
         try:
-            status = start_litellm(resolved_settings, LITELLM_CONFIG_PATH)
+            status = start_litellm(resolved_settings, litellm_config_path())
         except (LiteLLMUnavailableError, FileNotFoundError, RuntimeError) as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return ServerActionResponse(

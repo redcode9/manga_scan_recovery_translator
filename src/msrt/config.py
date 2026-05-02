@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,13 +28,18 @@ class Settings(BaseSettings):
     """Settings loaded from environment variables and ``.env``.
 
     The ``.env`` location is resolved by ``msrt.paths.env_file_path``
-    so that ``msrt`` works the same regardless of where the user
-    launched it from. Tests that need full isolation can still pass
+    *at instantiation time* (not at import time), so the same
+    ``Settings()`` call picks up the right file even after a
+    ``chdir`` or after ``MSRT_HOME`` has been set programmatically.
+    Tests that need full isolation can still pass
     ``_env_file=None`` when instantiating ``Settings`` directly.
     """
 
     model_config = SettingsConfigDict(
-        env_file=str(env_file_path()),
+        # Placeholder default; ``__init__`` overrides via ``_env_file``
+        # so the resolution is dynamic. Pydantic-settings still expects
+        # *something* here for the class config to validate.
+        env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -46,6 +51,14 @@ class Settings(BaseSettings):
     litellm_port: int = Field(default=4000, alias="LITELLM_PORT")
     mitr_bin_path: str | None = Field(default=None, alias="MITR_BIN_PATH")
     cache_dir: Path = Field(default_factory=lambda: Path.home() / ".cache" / "msrt")
+
+    def __init__(self, **kwargs: Any) -> None:
+        # Resolve the ``.env`` location lazily so that
+        # ``MSRT_HOME``, ``chdir`` or test fixtures that set up an
+        # alternate project root after import time are honoured.
+        if "_env_file" not in kwargs:
+            kwargs["_env_file"] = str(env_file_path())
+        super().__init__(**kwargs)
 
     @property
     def litellm_base_url(self) -> str:

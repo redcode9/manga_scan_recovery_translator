@@ -9,11 +9,15 @@ who runs it from the repo root.
 Resolution order (first match wins):
 
 1. ``MSRT_HOME`` env var, when set and pointing to an existing dir.
-2. The first ancestor of ``cwd`` containing a ``configs/litellm.yaml``
-   (a fingerprint of this repo's layout — more specific than just
-   ``pyproject.toml``).
-3. The first ancestor of ``cwd`` containing a ``pyproject.toml``.
-4. ``cwd`` as the last-resort fallback so existing behaviour is
+2. The first ancestor of ``__file__`` (the installed package
+   location) containing a ``configs/litellm.yaml`` — this catches
+   editable installs (``uv sync``) where the source tree IS the
+   project root.
+3. The first ancestor of ``cwd`` containing a ``configs/litellm.yaml``.
+4. Same two scans, falling back to a less-specific ``pyproject.toml``
+   marker for projects that have been moved/renamed and lost the
+   ``configs/`` directory.
+5. ``cwd`` as the last-resort fallback so existing behaviour is
    preserved when the user genuinely wants paths relative to where
    they ran the command.
 """
@@ -25,6 +29,22 @@ from pathlib import Path
 
 _MARKER = "configs/litellm.yaml"
 _FALLBACK_MARKER = "pyproject.toml"
+
+
+def _ancestors(path: Path) -> tuple[Path, ...]:
+    return (path, *path.parents)
+
+
+def _search(starts: tuple[Path, ...], marker: str) -> Path | None:
+    seen: set[Path] = set()
+    for start in starts:
+        for candidate in _ancestors(start.resolve()):
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            if (candidate / marker).exists():
+                return candidate
+    return None
 
 
 def project_root() -> Path:
@@ -40,14 +60,14 @@ def project_root() -> Path:
         if path.is_dir():
             return path
 
-    cwd = Path.cwd().resolve()
-    for candidate in (cwd, *cwd.parents):
-        if (candidate / _MARKER).exists():
-            return candidate
-    for candidate in (cwd, *cwd.parents):
-        if (candidate / _FALLBACK_MARKER).exists():
-            return candidate
-    return cwd
+    file_root = Path(__file__).resolve().parent  # src/msrt
+    cwd = Path.cwd()
+    starts = (file_root, cwd)
+
+    found = _search(starts, _MARKER) or _search(starts, _FALLBACK_MARKER)
+    if found is not None:
+        return found
+    return cwd.resolve()
 
 
 def env_file_path() -> Path:

@@ -58,11 +58,10 @@ from msrt.translate.glossary_builder import (
     save_glossary,
 )
 
-# Resolved lazily via ``litellm_config_path()`` so a user who runs
-# ``msrt`` from outside the repo gets the right file. This module-level
-# constant is kept for back-compat with call sites that pass it as a
-# default Typer option value, but new code should prefer the function.
-LITELLM_CONFIG_PATH = litellm_config_path()
+# Resolved per-call via ``litellm_config_path()`` so a user who runs
+# ``msrt`` from outside the repo gets the right file. Typer defaults
+# are evaluated at import time, so the ``server`` command uses
+# ``None`` as the default and resolves dynamically inside the body.
 
 app = typer.Typer(
     name="msrt",
@@ -586,6 +585,7 @@ def _run_url_once(
     lang_target: str,
     no_gpu: bool,
     site: str,
+    manifest_name: str | None = None,
 ) -> RunManifest:
     try:
         scraper = scraper_for_url(url, site=site)
@@ -666,6 +666,7 @@ def _run_url_once(
                 input_type="url",
                 input_url=url,
                 fetch_metadata=fetch_meta,
+                manifest_name=manifest_name,
             )
         except Exception as exc:
             console.print(f"[red]Errore run-local:[/red] {exc}")
@@ -774,6 +775,15 @@ def _run_all_chapters(
             console.print(f"[yellow]skip[/yellow] output già presente per capitolo {label}.")
             continue
 
+        # Per-chapter manifest filename so each chapter in a CLI batch
+        # gets its own ``msrt-run-<series>-<chapter>-<lang>.json`` instead
+        # of overwriting a shared ``msrt-run.json``.
+        series_for_manifest = chapter.series or "unknown-series"
+        manifest_name = (
+            f"msrt-run-{slugify(series_for_manifest)}-"
+            f"{slugify(chapter.chapter_number)}-{lang_target}.json"
+        )
+
         try:
             manifest = _run_url_once(
                 url=chapter.url,
@@ -789,6 +799,7 @@ def _run_all_chapters(
                 lang_target=lang_target,
                 no_gpu=no_gpu,
                 site=site,
+                manifest_name=manifest_name,
             )
         except Exception as exc:
             failures.append((chapter, str(exc)))
@@ -1041,8 +1052,8 @@ def setup(
 def server(
     action: Annotated[str, typer.Argument(help="up|down|status")],
     config: Annotated[
-        Path, typer.Option("--config", help="Config LiteLLM da usare.")
-    ] = LITELLM_CONFIG_PATH,
+        Path | None, typer.Option("--config", help="Config LiteLLM da usare.")
+    ] = None,
     wait_seconds: Annotated[
         float,
         typer.Option("--wait", help="Secondi di attesa per healthcheck dopo l'avvio."),
@@ -1051,9 +1062,10 @@ def server(
     """Gestione del proxy LiteLLM locale (subprocess; no Docker richiesto)."""
 
     settings = Settings()
+    resolved_config = config or litellm_config_path()
     if action == "up":
         try:
-            status = start_litellm(settings, config, wait_seconds=wait_seconds)
+            status = start_litellm(settings, resolved_config, wait_seconds=wait_seconds)
         except LiteLLMUnavailableError as exc:
             console.print(f"[red]LiteLLM non disponibile:[/red] {exc}")
             raise typer.Exit(code=1) from exc

@@ -256,6 +256,19 @@ class JobManager:
                 )
                 job.finished_at = datetime.now(UTC)
                 self._persist(job)
+            elif job.status == "queued":
+                # The previous process accepted a queued job but never
+                # got to run it. Re-queueing silently would surprise the
+                # user (different process, possibly different config);
+                # marking it cancelled with an explicit message lets the
+                # user decide whether to re-submit, and ``Retry failed``
+                # already handles the batch case.
+                job.status = "cancelled"
+                job.warnings.append(
+                    "Backend riavviato prima dell'avvio del job; rilancialo manualmente se serve."
+                )
+                job.finished_at = datetime.now(UTC)
+                self._persist(job)
             self._jobs[job.id] = job
 
 

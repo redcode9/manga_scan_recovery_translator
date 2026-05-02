@@ -30,7 +30,7 @@ export interface JobEvent {
   total?: number;
   unit?: string;
   path?: string;
-  status?: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  status?: "queued" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
 }
 
 interface UseJobEventsResult {

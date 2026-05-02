@@ -429,6 +429,63 @@ def test_run_all_chapters_orchestrates_every_chapter(tmp_path: Path, monkeypatch
     assert calls[1].name == "1"
 
 
+def test_run_all_chapters_passes_unique_manifest_name_per_chapter(
+    tmp_path: Path,
+    monkeypatch,  # type: ignore[no-untyped-def]
+) -> None:
+    """Regression: in batch mode each chapter must request its own
+    ``manifest_name`` so the per-chapter manifests don't overwrite a
+    single ``msrt-run.json``. We capture every ``run_local`` call and
+    assert the names are distinct and follow the deterministic
+    ``msrt-run-<series>-<chapter>-<lang>.json`` format."""
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _patch_fake_scraper(monkeypatch)
+    captured_manifest_names: list[str | None] = []
+
+    from msrt.models import RunManifest
+
+    def stub(image_dir, out_dir, **kwargs):  # type: ignore[no-untyped-def]
+        captured_manifest_names.append(kwargs.get("manifest_name"))
+        return RunManifest.model_validate(
+            {
+                "msrt_version": "0.0.0",
+                "command": "stub",
+                "input": {"type": "url", "page_count": 2, "url": "http://x"},
+                "page_order": ["001.png", "002.png"],
+                "page_hashes": {"001.png": "sha256:a", "002.png": "sha256:b"},
+                "model": {"alias": "gpt", "resolved_id": "gpt-5.5", "provider": "openai"},
+                "engine": {"type": "subprocess"},
+                "output_files": [str(out_dir / f"fake-{len(captured_manifest_names)}.pdf")],
+            }
+        )
+
+    monkeypatch.setattr("msrt.cli.run_local", stub)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "https://fake-test.example/chapter/abc",
+            "--all-chapters",
+            "--out",
+            str(tmp_path / "out"),
+            "--i-own-rights",
+            "--no-gpu",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert len(captured_manifest_names) == 2
+    assert all(name is not None for name in captured_manifest_names)
+    assert len(set(captured_manifest_names)) == 2, captured_manifest_names
+    for name in captured_manifest_names:
+        assert name is not None
+        assert name.startswith("msrt-run-fake-series-")
+        assert name.endswith("-it.json")
+
+
 @pytest.fixture(autouse=True)
 def _cleanup_fake_dirs(tmp_path: Path):  # type: ignore[no-untyped-def]
     """Make sure leftover fake fetch dirs from one test don't interfere

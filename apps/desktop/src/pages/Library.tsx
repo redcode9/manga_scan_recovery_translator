@@ -46,7 +46,7 @@ export function LibraryPage() {
             id="out-dir"
             value={outDir}
             onChange={(e) => setOutDir(e.target.value)}
-            className="w-44 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm shadow-sm focus:border-sky-400 focus:outline-none"
+            className="w-44 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
           />
           <button
             type="button"

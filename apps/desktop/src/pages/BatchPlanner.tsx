@@ -101,7 +101,7 @@ export function BatchPlannerPage() {
             <input
               value={form.url}
               onChange={(e) => update("url", e.target.value)}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 font-mono text-sm focus:border-sky-400 focus:outline-none"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
               placeholder="https://mangadex.org/title/<UUID> o /chapter/<UUID>"
               required
             />
@@ -110,7 +110,7 @@ export function BatchPlannerPage() {
             <input
               value={form.site}
               onChange={(e) => update("site", e.target.value)}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
             />
           </Field>
           <button
@@ -128,14 +128,14 @@ export function BatchPlannerPage() {
             <input
               value={form.range}
               onChange={(e) => update("range", e.target.value)}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
             />
           </Field>
           <Field label="Capitoli espliciti" hint="50,51,51.1">
             <input
               value={form.chapters}
               onChange={(e) => update("chapters", e.target.value)}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
             />
           </Field>
           <Field label="Limit" hint="primi N dopo i filtri">
@@ -143,7 +143,7 @@ export function BatchPlannerPage() {
               inputMode="numeric"
               value={form.limit}
               onChange={(e) => update("limit", e.target.value)}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
             />
           </Field>
         </div>
