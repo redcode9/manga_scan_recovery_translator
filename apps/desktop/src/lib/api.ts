@@ -277,6 +277,10 @@ export const api = {
     }),
   cancelJob: (id: string) =>
     request<Job>(`/api/jobs/${id}/cancel`, { method: "POST" }),
+  retryFailed: (id: string) =>
+    request<Job>(`/api/jobs/${id}/retry-failed`, { method: "POST" }),
+
+  diagnostics: () => request<Record<string, unknown>>("/api/diagnostics"),
 
   library: (out = "out") =>
     request<LibraryResponse>(`/api/library?out=${encodeURIComponent(out)}`),

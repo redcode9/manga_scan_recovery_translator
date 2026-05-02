@@ -10,6 +10,7 @@ import {
   BookOpenText,
   FileSearch,
   Gauge,
+  KeyRound,
   Layers,
   Library,
   ScrollText,
@@ -33,6 +34,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/new-job", label: "Nuovo Job", icon: <FileSearch size={18} /> },
   { to: "/batch", label: "Batch", icon: <Layers size={18} /> },
   { to: "/library", label: "Libreria", icon: <Library size={18} /> },
+  { to: "/setup", label: "Setup", icon: <KeyRound size={18} /> },
   { to: "/settings", label: "Impostazioni", icon: <Settings size={18} /> },
   { to: "/logs", label: "Log", icon: <ScrollText size={18} /> },
 ];

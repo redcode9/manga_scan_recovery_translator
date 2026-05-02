@@ -23,11 +23,13 @@ from __future__ import annotations
 
 import logging
 import platform
+import re
 import subprocess
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -290,6 +292,36 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Job {job_id} non trovato.")
         return job
 
+    @app.post("/api/jobs/{job_id}/retry-failed", response_model=Job, status_code=201)
+    async def retry_failed_chapters(job_id: str) -> Job:
+        original = manager.get(job_id)
+        if original is None:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} non trovato.")
+        if original.kind != "url_batch":
+            raise HTTPException(
+                status_code=409,
+                detail="Retry-failed disponibile solo su batch URL.",
+            )
+        failed_numbers = _extract_failed_chapter_numbers(original.errors)
+        if not failed_numbers:
+            raise HTTPException(
+                status_code=409,
+                detail="Nessun capitolo fallito da rilanciare.",
+            )
+
+        new_request = original.request.model_copy(
+            update={
+                "options": original.request.options.model_copy(
+                    update={
+                        "chapters_filter": ",".join(failed_numbers),
+                        "range_filter": None,
+                        "limit": None,
+                    }
+                ),
+            }
+        )
+        return await manager.submit(new_request)
+
     @app.get("/api/jobs/{job_id}/events")
     async def job_events(job_id: str) -> EventSourceResponse:
         job = manager.get(job_id)
@@ -319,6 +351,48 @@ def create_app(
                 detail=f"Manifest {manifest_id} non trovato in {out}.",
             )
         return entry
+
+    # ------------------------------------------------------------------
+    # Diagnostics — redacted bundle for bug reports
+    # ------------------------------------------------------------------
+
+    @app.get("/api/diagnostics")
+    def diagnostics() -> dict[str, Any]:
+        """Snapshot for issue reports: doctor + presence flags +
+        recent jobs + platform info. Never includes API key values
+        or raw .env content. Errors strings come from the same
+        ``Job.errors`` list the UI already shows, so they're already
+        user-visible."""
+
+        view = settings_view(resolved_settings)
+        recent = manager.list_jobs()[:20]
+        return {
+            "msrt_version": __version__,
+            "platform": {
+                "system": platform.system(),
+                "release": platform.release(),
+                "python": platform.python_version(),
+            },
+            "settings": view.model_dump(),
+            "doctor": build_doctor_report().model_dump(),
+            "litellm_log_path": str(log_file(resolved_settings)),
+            "recent_jobs": [
+                {
+                    "id": j.id,
+                    "kind": j.kind,
+                    "status": j.status,
+                    "current_phase": j.current_phase,
+                    "chapters_total": j.chapters_total,
+                    "chapters_done": j.chapters_done,
+                    "chapters_failed": j.chapters_failed,
+                    "errors": j.errors,
+                    "warnings": j.warnings,
+                    "created_at": j.created_at.isoformat(),
+                    "finished_at": j.finished_at.isoformat() if j.finished_at else None,
+                }
+                for j in recent
+            ],
+        }
 
     # ------------------------------------------------------------------
     # Open path (native)
@@ -383,6 +457,25 @@ def create_app(
 # ----------------------------------------------------------------------------
 # helpers
 # ----------------------------------------------------------------------------
+
+
+_FAILED_CHAPTER_PATTERN = re.compile(r"^ch\.([^:]+):", re.IGNORECASE)
+
+
+def _extract_failed_chapter_numbers(errors: list[str]) -> list[str]:
+    """Pull chapter numbers from batch errors of the form
+    ``ch.<number>: <message>``. The UI builds a retry job that
+    re-runs only those chapters via ``options.chapters_filter``."""
+
+    seen: list[str] = []
+    for line in errors:
+        match = _FAILED_CHAPTER_PATTERN.match(line.strip())
+        if match is None:
+            continue
+        number = match.group(1).strip()
+        if number and number not in seen:
+            seen.append(number)
+    return seen
 
 
 def _validate_job_request(request: JobCreate) -> None:

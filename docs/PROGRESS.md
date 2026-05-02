@@ -874,10 +874,10 @@ Decisione stack:
 
 Roadmap v0.4:
 - [x] v0.4a backend UI foundation: FastAPI locale, job queue, eventi, doctor/server/dry-run, library manifest. (2026-05-02)
-- [x] v0.4b web UI MVP: scaffolding Vite/React/TS/Tailwind + Dashboard + Library + Settings live (2026-05-02), NewJob + BatchPlanner + JobProgress + Logs cablati su SSE/dry-run/jobs (2026-04-29).
-- [x] v0.4c single-command UX: backend serve la SPA buildata + auto-open browser; scaffold Tauri pronto per packaging futuro (2026-04-29).
-- [x] v0.4d setup wizard UI: 4 endpoint backend per save/delete/test/default-model + portachiavi macOS via `keyring` con fallback `.env`, pagina React `SetupWizard` con 3 provider e default model (2026-04-29).
-- [ ] v0.4e polish: dark/light mode, retry failed chapters, batch resume, diagnostics bundle redatto.
+- [x] v0.4b web UI MVP: scaffolding Vite/React/TS/Tailwind + Dashboard + Library + Settings live, NewJob + BatchPlanner + JobProgress + Logs cablati su SSE/dry-run/jobs. (2026-05-02)
+- [x] v0.4c single-command UX: backend serve la SPA buildata + auto-open browser; scaffold Tauri pronto per packaging futuro. (2026-05-02)
+- [x] v0.4d setup wizard UI: endpoint backend per save/delete/test/default-model + portachiavi macOS via `keyring` con fallback `.env`, pagina React `SetupWizard` con 3 provider e default model. (2026-05-02)
+- [x] v0.4e polish (parziale): retry-failed chapters endpoint + UI, diagnostics bundle redatto + download UI. Dark/light mode + batch resume from manifest rimandati a futuro post-MVP. (2026-05-02)
 
 ### v0.4b (parziale) — Web UI scaffolding + Dashboard/Library/Settings (2026-05-02)
 
@@ -948,7 +948,7 @@ cd apps/desktop && npm install && npm run dev
 
 Questi entrano nel prossimo iteration step di v0.4b.
 
-### v0.4b — Web UI MVP completa (2026-04-29)
+### v0.4b — Web UI MVP completa (2026-05-02)
 
 Chiusi gli stub di `Nuovo Job`, `Batch Planner`, `JobProgress` e `Logs` cablandoli sugli endpoint v0.4a:
 
@@ -957,32 +957,33 @@ Chiusi gli stub di `Nuovo Job`, `Batch Planner`, `JobProgress` e `Logs` cablando
 - `BatchPlanner.tsx`: dry-run con `range`/`chapters`/`limit`, tabella capitoli con stato `output_exists`, lancio batch dietro `--i-own-rights`.
 - `Logs.tsx`: lista job e tail SSE per quello selezionato.
 
-### v0.4c — Single-command UX (2026-04-29)
+### v0.4c — Single-command UX (2026-05-02)
 
 Obiettivo dichiarato dall'utente: "non deve servire avviare due processi". Soluzione doppia:
 
 1. **Backend serve la SPA buildata**. `app.py` espone `/assets/*` come `StaticFiles` e usa un fallback catch-all che restituisce `index.html` per qualsiasi path non `api/`. La directory di dist viene risolta tramite `MSRT_UI_DIST` (override) o `apps/desktop/dist` (default). Risultato: `msrt ui` da solo serve sia API che frontend a `127.0.0.1:4001`.
 2. **`msrt ui` auto-builda + apre il browser**. La CLI ha nuovi flag `--build/--no-build` (default `True`) e `--open/--no-open` (default `True`). Quando il bundle React non esiste o è obsoleto, lancia `npm install` + `npm run build` con stderr passato a video; se manca `npm` o la cartella `apps/desktop`, degrada gracefully e parte il backend in modalità solo-API.
-3. **Tauri shell scaffolato per il futuro**. `apps/desktop/src-tauri/` contiene `Cargo.toml` (Tauri 2 + serde), `tauri.conf.json` con `frontendDist: "../dist"` e `devUrl: http://127.0.0.1:5173`, `src/main.rs` con un comando `backend_info` di esempio. La build richiede toolchain Rust che oggi non è disponibile sulla macchina utente; il packaging `.dmg` resta v0.4 stretch.
+3. **Tauri shell scaffolato per il futuro**. `apps/desktop/src-tauri/` contiene `Cargo.toml` (Tauri 2 + serde), `tauri.conf.json` con `frontendDist: "../dist"` e `devUrl: http://127.0.0.1:5173`, `src/main.rs` con un comando `backend_info` di esempio. La build richiede toolchain Rust che oggi non è disponibile sulla macchina utente; il packaging `.dmg` resta uno step desktop successivo.
 
-Quality gate post-v0.4c: ruff/format clean, mypy strict clean, **222 test backend passano**, `npm run build` clean a 277.85 kB JS / 4.20 kB gzip CSS.
+Quality gate post-v0.4c: ruff/format clean, mypy strict clean, **225 test backend passano**, `npm run build` clean.
 
-### v0.4d — Setup wizard + portachiavi (2026-04-29)
+### v0.4d — Setup wizard + portachiavi (2026-05-02)
 
 Le chiavi API e il modello di default ora si configurano dalla UI senza editare `.env` a mano.
 
 **Backend nuovo**:
-- `src/msrt/ui_server/secrets.py`: store dei segreti con due backend in priorità (1) `keyring` (macOS Keychain / SecretService Linux / Credential Manager Windows) e (2) `.env` come fallback. Funzioni: `save_secret` / `get_secret` / `delete_secret` / `known_keys`. Quando il portachiavi accetta il valore, il `.env` viene **bonificato** (riga rimossa) per evitare shadow read. Il modulo onora `MSRT_DISABLE_KEYRING=1` per test e per gli utenti che preferiscono solo `.env`.
+- `src/msrt/ui_server/secrets.py`: store dei segreti con due backend in priorità (1) `keyring` (macOS Keychain / SecretService Linux / Credential Manager Windows) e (2) `.env` come fallback. Funzioni: `save_secret` / `get_secret` / `delete_secret` / `known_keys` / `hydrate_process_env`. Quando il portachiavi accetta il valore, il `.env` viene bonificato per evitare shadow read; al boot della UI i segreti salvati nel portachiavi vengono reidratati in `os.environ` così LiteLLM continua a ricevere le chiavi dopo un restart. Il modulo onora `MSRT_DISABLE_KEYRING=1` per test e per gli utenti che preferiscono solo `.env`.
 - `src/msrt/ui_server/setup_api.py`: schemi Pydantic + handler per i 4 endpoint nuovi. La validazione del nome chiave usa `known_keys()` (whitelist `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`).
 - 4 nuovi endpoint in `app.py`:
   - `POST /api/setup/save-key`     → salva (preferisce keychain, mirror env in-process, ritorna `{name, backend, message}` senza il valore)
   - `POST /api/setup/delete-key`   → cancella da entrambi i backend, `os.environ.pop`
   - `POST /api/setup/test-key`     → mini-chiamata reale al provider via `run_litellm_paid_smoke` (richiede LiteLLM up)
   - `POST /api/setup/default-model`→ scrive `MSRT_MODEL` nel `.env` e nell'env del processo
-- `settings_view` riscritto: la presenza di una chiave si calcola da `Settings` + portachiavi, **senza** rileggere il `.env` (quello viene già caricato da `pydantic-settings`). Conseguenza: niente leak della `.env` di sviluppo nei test che usano `isolated_settings`.
+- `settings_view` riscritto: la presenza di una chiave si calcola da `Settings` + secret store, ritornando solo booleani `has_*_key`. Conseguenza: niente valori segreti nel payload `/api/settings`.
 
 **Frontend nuovo**:
-- `apps/desktop/src/pages/Settings.tsx` riscritto come setup self-service: card "Provider & modello default" con input alias e bottone Salva, tre `ProviderKeyCard` (OpenAI/Anthropic/Gemini) ognuna con input password masked, pulsanti `Salva` / `Rimuovi` / `Paid smoke`, presence pill `presente|assente`, feedback in linea per ok/fail e backend usato (`keychain` vs `dotenv`). Cards informative LiteLLM/MITR/Cache restano sotto. Una sola pagina = una sola sorgente di verità per lo stato di configurazione.
+- `apps/desktop/src/pages/SetupWizard.tsx` (`/setup` route): tre `ProviderCard` (Anthropic/OpenAI/Google) ognuna con input password rivelabile, pulsanti `Salva` / `Test` / `Rimuovi`, link al portale del provider, feedback in linea (tone `ok`/`warn`/`fail` a seconda del backend). Quarta card `Default model` con `<select>` su tutti gli alias noti + supporto a custom alias presenti in `.env`. Stato live: dopo ogni mutation invalida `["settings"]` così il pill `presente`/`assente` si aggiorna. Voce di nav `Setup` aggiunta in `AppShell`.
+- `Settings.tsx` resta diagnostica/read-only e rimanda a `/setup` per modificare chiavi/modello.
 - `lib/api.ts`: tipi `SecretName`/`SecretReportResponse`/`SetupTestResult`/`DefaultModelResponse` + metodi `saveKey` / `deleteKey` / `testModel` / `setDefaultModel`.
 
 **Test**:
@@ -992,6 +993,27 @@ Le chiavi API e il modello di default ora si configurano dalla UI senza editare 
 - `test_settings_endpoint_does_not_leak_keys` continua a passare anche con la `.env` di progetto piena.
 
 Quality gate post-v0.4d: ruff/format clean, mypy strict clean, **225 test backend passano**, `npm run build` clean.
+
+### v0.4e — Retry failed + diagnostics (2026-05-02)
+
+Polish funzionale dopo che il setup è cablato. Due capability ad alta utilità per l'uso reale del tool.
+
+**Backend nuovo**:
+- `POST /api/jobs/{id}/retry-failed`: legge i `Job.errors` di un job `url_batch` (formati come `ch.<numero>: <messaggio>`), estrae i numeri di capitolo distinti e crea un nuovo job batch con `options.chapters_filter` impostato a quei numeri (separati da virgola). `range_filter` e `limit` vengono azzerati così la nuova run rilancia esattamente quei capitoli e nient'altro. Risponde 409 se il job non è batch o se non ci sono fallimenti registrati.
+- `GET /api/diagnostics`: snapshot redatto con `msrt_version`, info piattaforma, `settings_view` (presence flag, mai valori), `doctor_report`, percorso del log LiteLLM e ultimi 20 job (id/kind/status/contatori capitoli/errors/warnings). Niente chiavi, niente body grezzi: questo bundle è pensato per essere allegato a un'issue pubblica.
+
+**Frontend nuovo**:
+- `JobProgress.tsx`: pulsante "Riprova falliti (N)" visibile solo per batch URL terminali con `chapters_failed > 0`. On click chiama `api.retryFailed(id)` e naviga al job nuovo.
+- `Settings.tsx`: card `Diagnostica` con bottone che fetcha `/api/diagnostics` lato client e triggera un download del JSON come `msrt-diagnostics-<timestamp>.json`. Nessun secret nel payload.
+- `lib/api.ts`: nuovi metodi `retryFailed(id)` e `diagnostics()`.
+
+**Test**:
+- `test_diagnostics_endpoint_returns_redacted_snapshot` — sentinel non appare, presence flags ok.
+- `test_retry_failed_chapters_filters_to_failed_numbers` — runner finto popola `errors=["ch.51: …", "ch.52: …"]`; il retry crea un job nuovo con `chapters_filter == "51,52"` e `range_filter/limit` azzerati.
+- `test_retry_failed_rejects_non_batch_jobs` — local job → 409.
+- `test_retry_failed_rejects_jobs_without_failed_chapters` — batch senza errori → 409.
+
+Quality gate post-v0.4e: ruff/format clean, mypy strict clean, **229 test backend passano**, `npm run build` clean.
 
 ### v0.4a.1 — Code review backend UI (2026-05-02)
 

@@ -1,13 +1,22 @@
 # msrt-desktop
 
-Local web UI for `msrt`. Talks to the FastAPI backend exposed by
-`uv run msrt ui` at `http://127.0.0.1:4001`.
+Local web UI for `msrt`. In produzione `uv run msrt ui` serve sia API
+FastAPI sia bundle React su `http://127.0.0.1:4001`.
+
+## Quick start (single command)
+
+```bash
+uv run msrt ui
+```
+
+Il comando builda `apps/desktop` se serve, avvia il backend e apre il
+browser sulla UI. Per sviluppo frontend usa il flusso a due processi qui sotto.
 
 ## Quick start (development)
 
 ```bash
-# 1) Backend (in one terminal, from the repo root)
-uv run msrt ui
+# 1) Backend API + static serving disabled for HMR
+uv run msrt ui --no-build --no-open
 
 # 2) Frontend (in another terminal)
 cd apps/desktop
@@ -19,10 +28,8 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The Vite dev
 server proxies `/api/*` to `127.0.0.1:4001`, so there is no CORS to
 worry about.
 
-> **v0.4b note** — for now the dev workflow keeps backend and
-> frontend as separate processes. The Tauri shell in v0.4c will boot
-> the backend automatically so the user only ever sees the desktop
-> app.
+> **Dev note** — HMR usa due processi. L'uso normale resta un solo
+> comando (`uv run msrt ui`).
 
 ## Stack
 
@@ -33,6 +40,7 @@ worry about.
 * `react-router-dom` for routing
 * Lucide for icons
 * Native `EventSource` behind a `useJobEvents` hook
+* Tauri 2 scaffold in `src-tauri/` for future desktop packaging
 
 ## Scripts
 

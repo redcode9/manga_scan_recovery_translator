@@ -15,11 +15,12 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  RotateCcw,
   XCircle,
 } from "lucide-react";
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../lib/api";
 import type { Job, JobStatus } from "../lib/api";
@@ -31,6 +32,7 @@ import { StatusPill } from "../components/StatusPill";
 export function JobProgressPage() {
   const params = useParams<{ id: string }>();
   const id = params.id ?? "";
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const job = useQuery({
@@ -47,6 +49,14 @@ export function JobProgressPage() {
   const cancel = useMutation({
     mutationFn: () => api.cancelJob(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["job", id] }),
+  });
+
+  const retryFailed = useMutation({
+    mutationFn: () => api.retryFailed(id),
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      navigate(`/jobs/${created.id}`);
+    },
   });
 
   const { events } = useJobEvents(id);
@@ -75,7 +85,14 @@ export function JobProgressPage() {
 
   return (
     <div className="space-y-6">
-      <Header job={job.data} onCancel={() => cancel.mutate()} cancelling={cancel.isPending} />
+      <Header
+        job={job.data}
+        onCancel={() => cancel.mutate()}
+        cancelling={cancel.isPending}
+        onRetryFailed={() => retryFailed.mutate()}
+        retrying={retryFailed.isPending}
+        retryError={retryFailed.error?.message}
+      />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <SummaryCard job={job.data} events={events} />
         <OutputsCard job={job.data} />
@@ -91,51 +108,84 @@ function Header({
   job,
   onCancel,
   cancelling,
+  onRetryFailed,
+  retrying,
+  retryError,
 }: {
   job: Job;
   onCancel: () => void;
   cancelling: boolean;
+  onRetryFailed: () => void;
+  retrying: boolean;
+  retryError: string | undefined;
 }) {
   const canCancel = !TERMINAL_STATES.has(job.status);
+  const canRetry =
+    job.kind === "url_batch" &&
+    TERMINAL_STATES.has(job.status) &&
+    job.chapters_failed > 0;
+
   return (
-    <header className="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <div className="text-xs uppercase tracking-wide text-slate-500">Job</div>
-        <h1 className="font-mono text-2xl font-semibold tracking-tight">{job.id}</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          <span className="font-medium">{job.kind}</span>
-          {" · "}
-          <span>creato {formatTimestamp(job.created_at)}</span>
-          {job.started_at && (
-            <>
-              {" · "}durata {formatDuration(job.started_at, job.finished_at ?? new Date().toISOString())}
-            </>
+    <header className="space-y-2">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">Job</div>
+          <h1 className="font-mono text-2xl font-semibold tracking-tight">{job.id}</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            <span className="font-medium">{job.kind}</span>
+            {" · "}
+            <span>creato {formatTimestamp(job.created_at)}</span>
+            {job.started_at && (
+              <>
+                {" · "}durata{" "}
+                {formatDuration(job.started_at, job.finished_at ?? new Date().toISOString())}
+              </>
+            )}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <StatusPill tone={statusTone(job.status)}>
+            {statusIcon(job.status)} {job.status}
+          </StatusPill>
+          {canRetry && (
+            <button
+              type="button"
+              disabled={retrying}
+              onClick={onRetryFailed}
+              className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-amber-700 disabled:opacity-50"
+              title={`Rilancia i ${job.chapters_failed} capitoli falliti`}
+            >
+              {retrying ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <RotateCcw size={14} />
+              )}
+              Riprova falliti ({job.chapters_failed})
+            </button>
           )}
-        </p>
-      </div>
-      <div className="flex items-center gap-2">
-        <StatusPill tone={statusTone(job.status)}>
-          {statusIcon(job.status)} {job.status}
-        </StatusPill>
-        {canCancel && (
-          <button
-            type="button"
-            disabled={cancelling}
-            onClick={onCancel}
-            className="inline-flex items-center gap-1.5 rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-50"
+          {canCancel && (
+            <button
+              type="button"
+              disabled={cancelling}
+              onClick={onCancel}
+              className="inline-flex items-center gap-1.5 rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-50"
+            >
+              <Ban size={14} />
+              Annulla
+            </button>
+          )}
+          <Link
+            to="/library"
+            className="inline-flex items-center gap-1.5 rounded-md bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-300"
           >
-            <Ban size={14} />
-            Annulla
-          </button>
-        )}
-        <Link
-          to="/library"
-          className="inline-flex items-center gap-1.5 rounded-md bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-300"
-        >
-          Libreria
-          <ChevronRight size={14} />
-        </Link>
+            Libreria
+            <ChevronRight size={14} />
+          </Link>
+        </div>
       </div>
+      {retryError && (
+        <p className="text-xs text-rose-600">Retry fallito: {retryError}</p>
+      )}
     </header>
   );
 }

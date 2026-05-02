@@ -634,3 +634,138 @@ def test_event_broker_late_subscriber_after_close_does_not_hang() -> None:
         return events
 
     assert asyncio.run(scenario()) == []
+
+
+# ----------------------------------------------------------------------------
+# v0.4e — diagnostics + retry-failed
+# ----------------------------------------------------------------------------
+
+
+def test_diagnostics_endpoint_returns_redacted_snapshot(
+    isolated_settings: Settings,
+) -> None:
+    """The diagnostics bundle must be safe to paste in a public bug
+    report. We seed a sentinel API key on the Settings object and
+    assert it doesn't appear in the response."""
+
+    sentinel = "sk-test-diag-LEAKED-IF-PRESENT"
+    object.__setattr__(isolated_settings, "openai_api_key", sentinel)
+
+    with _client(isolated_settings) as client:
+        response = client.get("/api/diagnostics")
+
+    assert response.status_code == 200
+    assert sentinel not in response.text
+    payload = response.json()
+    assert payload["msrt_version"]
+    assert "settings" in payload
+    assert "doctor" in payload
+    assert "recent_jobs" in payload
+    # Presence flags survive but not values.
+    assert payload["settings"]["has_openai_key"] is True
+
+
+async def _failing_batch_runner(ctx: JobContext) -> None:
+    """Simulate a batch where two chapters failed. Used to seed a job
+    state the retry-failed endpoint can act on."""
+
+    await ctx.emit(Event(type="phase", job_id=ctx.job.id, phase="fetch"))
+    ctx.job.chapters_total = 3
+    ctx.job.chapters_done = 1
+    ctx.job.chapters_failed = 2
+    ctx.job.errors.append("ch.51: fetch failed")
+    ctx.job.errors.append("ch.52: fetch failed")
+
+
+def test_retry_failed_chapters_filters_to_failed_numbers(
+    isolated_settings: Settings, tmp_path: Path
+) -> None:
+    """``POST /api/jobs/{id}/retry-failed`` builds a new url_batch job
+    whose ``chapters_filter`` is exactly the chapters reported as
+    failed by the original run."""
+
+    with _client(isolated_settings, _failing_batch_runner) as client:
+        original = client.post(
+            "/api/jobs",
+            json={
+                "kind": "url_batch",
+                "input_url": "https://fake-batch.example/series/foo",
+                "out_dir": str(tmp_path / "out"),
+                "i_own_rights": True,
+                "options": {"format": "pdf"},
+            },
+        )
+        assert original.status_code == 201, original.text
+        original_id = original.json()["id"]
+
+        for _ in range(40):
+            state = client.get(f"/api/jobs/{original_id}").json()
+            if state["status"] not in {"queued", "running"}:
+                break
+            asyncio.run(asyncio.sleep(0.05))
+        assert state["chapters_failed"] == 2
+
+        retry = client.post(f"/api/jobs/{original_id}/retry-failed")
+
+    assert retry.status_code == 201, retry.text
+    body = retry.json()
+    assert body["kind"] == "url_batch"
+    assert body["request"]["options"]["chapters_filter"] == "51,52"
+    assert body["request"]["options"]["range_filter"] is None
+    assert body["request"]["options"]["limit"] is None
+
+
+def test_retry_failed_rejects_non_batch_jobs(
+    isolated_settings: Settings, fast_runner_factory, tmp_path: Path
+) -> None:  # type: ignore[no-untyped-def]
+    """Local jobs don't have per-chapter errors to filter, so the
+    endpoint refuses them with a 409."""
+
+    runner = fast_runner_factory()
+    with _client(isolated_settings, runner) as client:
+        local = client.post(
+            "/api/jobs",
+            json={"kind": "local", "input_dir": str(tmp_path / "pages")},
+        ).json()
+        for _ in range(40):
+            final = client.get(f"/api/jobs/{local['id']}").json()
+            if final["status"] not in {"queued", "running"}:
+                break
+            asyncio.run(asyncio.sleep(0.05))
+
+        retry = client.post(f"/api/jobs/{local['id']}/retry-failed")
+
+    assert retry.status_code == 409
+    assert "batch" in retry.json()["detail"].lower()
+
+
+def test_retry_failed_rejects_jobs_without_failed_chapters(
+    isolated_settings: Settings, tmp_path: Path
+) -> None:
+    """If chapters_failed == 0 there's nothing to retry."""
+
+    async def green_runner(ctx: JobContext) -> None:
+        await ctx.emit(Event(type="phase", job_id=ctx.job.id, phase="done"))
+        ctx.job.chapters_total = 1
+        ctx.job.chapters_done = 1
+
+    with _client(isolated_settings, green_runner) as client:
+        created = client.post(
+            "/api/jobs",
+            json={
+                "kind": "url_batch",
+                "input_url": "https://fake-batch.example/series/foo",
+                "out_dir": str(tmp_path / "out"),
+                "i_own_rights": True,
+                "options": {"format": "pdf"},
+            },
+        ).json()
+        for _ in range(40):
+            final = client.get(f"/api/jobs/{created['id']}").json()
+            if final["status"] not in {"queued", "running"}:
+                break
+            asyncio.run(asyncio.sleep(0.05))
+        retry = client.post(f"/api/jobs/{created['id']}/retry-failed")
+
+    assert retry.status_code == 409
+    assert "fallito" in retry.json()["detail"].lower()

@@ -8,6 +8,7 @@ import { LibraryPage } from "../pages/Library";
 import { LogsPage } from "../pages/Logs";
 import { NewJobPage } from "../pages/NewJob";
 import { SettingsPage } from "../pages/Settings";
+import { SetupWizardPage } from "../pages/SetupWizard";
 
 export const router = createBrowserRouter([
   {
@@ -17,6 +18,7 @@ export const router = createBrowserRouter([
       { index: true, element: <Dashboard /> },
       { path: "library", element: <LibraryPage /> },
       { path: "settings", element: <SettingsPage /> },
+      { path: "setup", element: <SetupWizardPage /> },
       { path: "new-job", element: <NewJobPage /> },
       { path: "batch", element: <BatchPlannerPage /> },
       { path: "logs", element: <LogsPage /> },

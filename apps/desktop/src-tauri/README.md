@@ -5,7 +5,7 @@ app (`uv run msrt ui` la serve insieme alle API a 127.0.0.1:4001).
 Questo crate aggiunge:
 
 * finestra nativa macOS/Linux/Windows;
-* (futuro v0.4d) spawn automatico del backend Python come child
+* (futuro step desktop) spawn automatico del backend Python come child
   process, così l'utente non deve toccare il terminale;
 * packaging `.dmg` / `.app` / `.deb` / `.exe`.
 
@@ -46,7 +46,8 @@ cargo tauri build
 
 Il crate è scaffold-ato e `tauri.conf.json` punta a `../dist` per
 la UI. Il binding ai comandi (es. `backend_info`) è il punto da cui
-estenderemo il bridge con il processo Python in v0.4d.
+estenderemo il bridge con il processo Python in uno step desktop
+successivo.
 
-Le icone (`icons/32x32.png`, `icons/128x128.png`, `icons/icon.icns`)
-sono placeholder: vanno sostituite prima della release ufficiale.
+Le icone non sono ancora configurate: vanno aggiunte prima della
+release ufficiale/packaging `.dmg`.
