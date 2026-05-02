@@ -874,10 +874,79 @@ Decisione stack:
 
 Roadmap v0.4:
 - [x] v0.4a backend UI foundation: FastAPI locale, job queue, eventi, doctor/server/dry-run, library manifest. (2026-05-02)
-- [ ] v0.4b web UI MVP: dashboard, setup wizard, nuovo job, batch planner, progress live, library minima.
+- [~] v0.4b web UI MVP: scaffolding Vite/React/TS/Tailwind + Dashboard + Library + Settings live (2026-05-02). NewJob/BatchPlanner/Logs sono stub in attesa del prossimo iteration step.
 - [ ] v0.4c Tauri Mac app: wrapper desktop, file picker nativo, open PDF/folder, packaging interno.
 - [ ] v0.4d setup autoconfigurante completo: keychain, MITR, Playwright, LiteLLM, paid smoke opt-in.
 - [ ] v0.4e polish: dark/light mode, retry failed chapters, batch resume, diagnostics bundle redatto.
+
+### v0.4b (parziale) — Web UI scaffolding + Dashboard/Library/Settings (2026-05-02)
+
+Primo iteration step della UI desktop. Frontend isolato in `apps/desktop/`, parla col backend FastAPI di v0.4a tramite proxy Vite (`/api/*` → 127.0.0.1:4001) — niente CORS, niente accoppiamento col tooling Python.
+
+**Stack confermato**:
+- React 18 + TypeScript 5 strict
+- Vite 5 con `@tailwindcss/vite` (Tailwind v4 senza PostCSS config)
+- TanStack Query v5 per cache API
+- `react-router-dom` v6 per routing
+- `lucide-react` per icone
+- `EventSource` nativo dietro hook `useJobEvents`
+- npm (non pnpm), come da scelta utente
+
+**Layout**:
+```
+apps/desktop/
+├── package.json, vite.config.ts, tsconfig.json (strict)
+├── index.html, .gitignore, README.md
+└── src/
+    ├── main.tsx                 # QueryClientProvider + RouterProvider
+    ├── index.css                # @import "tailwindcss"
+    ├── app/routes.tsx           # createBrowserRouter
+    ├── components/
+    │   ├── AppShell.tsx         # sidebar + header con StatusPill live
+    │   └── StatusPill.tsx       # primitiva di stato (5 toni)
+    ├── lib/
+    │   ├── api.ts               # client tipizzato per ogni endpoint v0.4a
+    │   ├── events.ts            # useJobEvents(jobId) → {events, latest, closed}
+    │   └── format.ts            # formatTimestamp / formatDuration / pathBasename
+    └── pages/
+        ├── Dashboard.tsx        # doctor + LiteLLM + quick actions
+        ├── Library.tsx          # GET /api/library + open-path
+        ├── Settings.tsx         # read-only, mai key values, solo has_*_key
+        └── StubPage.tsx         # placeholder con milestone target
+```
+
+**Endpoint coperti**:
+- `Dashboard` → `/api/health`, `/api/doctor`, `/api/server` (refetch 5s), `/api/settings`. Mutations `serverUp/serverDown` invalidano lo status.
+- `Library` → `/api/library` con `out` configurabile. Click "apri" su PDF chiama `/api/open-path` → opener nativo.
+- `Settings` → `/api/settings` read-only. **Verifica esplicita**: `KeyPill` mostra solo `presente`/`assente`, mai il valore.
+
+**Pagine stub** (`StubPage` con milestone target): `Nuovo Job` (v0.4b prossimo step), `Batch` (v0.4b prossimo step), `Log` (v0.4e). La voce di menu c'è già, così la nav è completa, ma il contenuto chiarisce che non è ancora cablato.
+
+**Quick start (dev)**:
+```bash
+# Terminale 1
+uv run msrt ui
+
+# Terminale 2
+cd apps/desktop && npm install && npm run dev
+# Apri http://127.0.0.1:5173
+```
+
+**Production-like flow finale** (v0.4c): Tauri shell avvia il backend in background; l'utente vede solo l'app desktop. Per ora dev = due processi.
+
+**Quality gate frontend**:
+- `npm run typecheck` (`tsc -b --noEmit`) clean
+- `npm run build` clean — `dist/index.html 0.47 kB`, JS 277.85 kB / 87.32 kB gzip, CSS 16.92 kB / 4.20 kB gzip
+- Backend: 222 test pass invariati
+
+**Cosa NON è ancora in v0.4b**:
+- Form `Nuovo Job` (POST `/api/jobs` con campi locale/url, options, i_own_rights)
+- `Batch Planner` con `/api/chapters/dry-run` interattivo + selettori range/chapters/limit
+- `JobProgress` live tramite `useJobEvents` (SSE)
+- `SetupWizard` guidato (passa a v0.4d con Keychain integration)
+- `Logs` page (v0.4e)
+
+Questi entrano nel prossimo iteration step di v0.4b.
 
 ### v0.4a.1 — Code review backend UI (2026-05-02)
 
