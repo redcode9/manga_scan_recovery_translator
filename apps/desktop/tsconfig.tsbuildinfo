@@ -1,1 +1,0 @@
-{"root":["./src/main.tsx","./src/app/routes.tsx","./src/components/appshell.tsx","./src/components/statuspill.tsx","./src/lib/api.ts","./src/lib/events.ts","./src/lib/format.ts","./src/pages/dashboard.tsx","./src/pages/library.tsx","./src/pages/settings.tsx","./src/pages/stubpage.tsx"],"version":"5.9.3"}
