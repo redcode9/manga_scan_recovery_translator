@@ -27,6 +27,16 @@ class FetchedPage:
     size_bytes: int
 
 
+@dataclass(frozen=True)
+class ChapterLink:
+    """One chapter URL discovered from a series/reader page."""
+
+    url: str
+    chapter_number: str
+    title: str | None = None
+    series: str | None = None
+
+
 @dataclass
 class FetchResult:
     """Outcome of a scraper.fetch() call.
@@ -73,3 +83,12 @@ class ChapterScraper(ABC):
         always end up named ``001.png``, ``002.jpg``, etc. so the local
         pipeline can pick them up via natural sort.
         """
+
+    async def list_chapters(self, url: str) -> list[ChapterLink]:
+        """Return every chapter URL for the series containing ``url``.
+
+        Site adapters that cannot resolve a series/chapter list should leave
+        the default implementation in place.
+        """
+
+        raise FetchError(f"Adapter '{self.name}' non supporta --all-chapters.")

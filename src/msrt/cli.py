@@ -7,7 +7,7 @@ import shutil
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal, cast
 
 import typer
 from rich.console import Console
@@ -23,7 +23,7 @@ from rich.progress import (
 from msrt import __version__
 from msrt.config import Settings
 from msrt.doctor import DoctorCheck, run_doctor
-from msrt.models import ManifestFetch, TranslationJob
+from msrt.models import ManifestFetch, RunManifest, TranslationJob
 from msrt.pipeline import (
     PhaseCallback,
     collect_local_chapter,
@@ -32,7 +32,7 @@ from msrt.pipeline import (
     slugify,
     translate_only,
 )
-from msrt.scrape.base import FetchError, FetchResult
+from msrt.scrape.base import ChapterLink, FetchError, FetchResult
 from msrt.scrape.registry import scraper_for_url
 from msrt.server import (
     LiteLLMUnavailableError,
@@ -64,9 +64,18 @@ console = Console()
 PHASE_DESCRIPTIONS = {
     "collect": "Raccolta pagine",
     "translate": "Traduzione con MITR",
+    "postprocess": "Postprocess bubble-aware",
     "package": "Packaging output",
     "done": "Completato",
 }
+
+RendererOption = Annotated[
+    str,
+    typer.Option(
+        "--renderer",
+        help="mitr-manga2eng|custom-postprocess. Default: custom-postprocess.",
+    ),
+]
 
 
 def _make_progress() -> Progress:
@@ -170,6 +179,7 @@ def translate(
         Path | None,
         typer.Option("--pre-dict", help="File TSV correzioni OCR (passato a MITR --pre-dict)."),
     ] = None,
+    renderer: RendererOption = "custom-postprocess",
     series: Annotated[str, typer.Option("--series")] = "Untitled Series",
     chapter: Annotated[str, typer.Option("--chapter")] = "1",
     title: Annotated[str | None, typer.Option("--title")] = None,
@@ -179,16 +189,20 @@ def translate(
 ) -> None:
     """Traduci una cartella di immagini con MITR; non produce CBZ/PDF."""
 
+    renderer_choice = _renderer(renderer)
     job = TranslationJob(
         model=_effective_model(model),
         font_path=font_path,
         glossary_path=glossary,
         auto_glossary=auto_glossary,
         pre_dict_path=pre_dict,
+        renderer=renderer_choice,
         use_gpu=not no_gpu,
     )
     with _make_progress() as progress:
-        task_id = progress.add_task("Avvio...", total=2)
+        task_id = progress.add_task(
+            "Avvio...", total=_phase_total(renderer_choice, includes_package=False)
+        )
         on_phase = _phase_callback(progress, task_id)
         on_log = _log_callback(progress)
         try:
@@ -237,6 +251,7 @@ def run_local_command(
         Path | None,
         typer.Option("--pre-dict", help="File TSV correzioni OCR (passato a MITR --pre-dict)."),
     ] = None,
+    renderer: RendererOption = "custom-postprocess",
     series: Annotated[str, typer.Option("--series")] = "Untitled Series",
     chapter: Annotated[str, typer.Option("--chapter")] = "1",
     title: Annotated[str | None, typer.Option("--title")] = None,
@@ -246,16 +261,20 @@ def run_local_command(
 ) -> None:
     """Traduci una cartella locale di immagini e produci PDF/CBZ."""
 
+    renderer_choice = _renderer(renderer)
     job = TranslationJob(
         model=_effective_model(model),
         font_path=font_path,
         glossary_path=glossary,
         auto_glossary=auto_glossary,
         pre_dict_path=pre_dict,
+        renderer=renderer_choice,
         use_gpu=not no_gpu,
     )
     with _make_progress() as progress:
-        task_id = progress.add_task("Avvio...", total=3)
+        task_id = progress.add_task(
+            "Avvio...", total=_phase_total(renderer_choice, includes_package=True)
+        )
         on_phase = _phase_callback(progress, task_id)
         on_log = _log_callback(progress)
         try:
@@ -381,6 +400,7 @@ def run(
         Path | None,
         typer.Option("--pre-dict", help="File TSV correzioni OCR (passato a MITR --pre-dict)."),
     ] = None,
+    renderer: RendererOption = "custom-postprocess",
     lang_source: Annotated[str, typer.Option("--lang-source")] = "en",
     lang_target: Annotated[str, typer.Option("--lang-target")] = "it",
     no_gpu: Annotated[bool, typer.Option("--no-gpu")] = False,
@@ -391,6 +411,27 @@ def run(
             help="Adapter da usare. 'auto' (default) sceglie in base al dominio.",
         ),
     ] = "auto",
+    all_chapters: Annotated[
+        bool,
+        typer.Option(
+            "--all-chapters",
+            help="Scarica/traduce tutti i capitoli esposti dalla serie del reader URL.",
+        ),
+    ] = False,
+    skip_existing: Annotated[
+        bool,
+        typer.Option(
+            "--skip-existing/--no-skip-existing",
+            help="In --all-chapters salta i capitoli con output già presente.",
+        ),
+    ] = True,
+    continue_on_error: Annotated[
+        bool,
+        typer.Option(
+            "--continue-on-error/--stop-on-error",
+            help="In --all-chapters prosegue sugli altri capitoli se uno fallisce.",
+        ),
+    ] = True,
     i_own_rights: Annotated[
         bool,
         typer.Option(
@@ -421,11 +462,78 @@ def run(
         )
         raise typer.Exit(code=1)
 
+    renderer_choice = _renderer(renderer)
+    if all_chapters:
+        _run_all_chapters(
+            url=url,
+            out=out,
+            fmt=format,
+            model=model,
+            font_path=font_path,
+            glossary=glossary,
+            auto_glossary=auto_glossary,
+            pre_dict=pre_dict,
+            renderer=renderer_choice,
+            lang_source=lang_source,
+            lang_target=lang_target,
+            no_gpu=no_gpu,
+            site=site,
+            skip_existing=skip_existing,
+            continue_on_error=continue_on_error,
+        )
+        return
+
+    try:
+        manifest = _run_url_once(
+            url=url,
+            out=out,
+            fmt=format,
+            model=model,
+            font_path=font_path,
+            glossary=glossary,
+            auto_glossary=auto_glossary,
+            pre_dict=pre_dict,
+            renderer=renderer_choice,
+            lang_source=lang_source,
+            lang_target=lang_target,
+            no_gpu=no_gpu,
+            site=site,
+        )
+    except NotImplementedError as exc:
+        console.print(f"[yellow]Adapter non implementato:[/yellow] {exc}")
+        raise typer.Exit(code=2) from exc
+    except FetchError as exc:
+        console.print(f"[red]Errore fetch:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:
+        console.print(f"[red]Errore run:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    console.print("[green]Completato[/green]")
+    for output_file in manifest.output_files:
+        console.print(output_file)
+
+
+def _run_url_once(
+    *,
+    url: str,
+    out: Path,
+    fmt: str,
+    model: str | None,
+    font_path: Path | None,
+    glossary: Path | None,
+    auto_glossary: bool,
+    pre_dict: Path | None,
+    renderer: str,
+    lang_source: str,
+    lang_target: str,
+    no_gpu: bool,
+    site: str,
+) -> RunManifest:
     try:
         scraper = scraper_for_url(url, site=site)
-    except FetchError as exc:
-        console.print(f"[red]Errore:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
+    except FetchError:
+        raise
 
     fetch_root = out / ".msrt-fetch" / scraper.name
     pending_dir = fetch_root / f"_pending-{uuid.uuid4().hex[:8]}"
@@ -433,18 +541,13 @@ def run(
 
     try:
         fetch_result: FetchResult = asyncio.run(scraper.fetch(url, pending_dir))
-    except NotImplementedError as exc:
-        console.print(f"[yellow]Adapter '{scraper.name}' non implementato:[/yellow] {exc}")
+    except (NotImplementedError, FetchError):
         shutil.rmtree(pending_dir, ignore_errors=True)
-        raise typer.Exit(code=2) from exc
-    except FetchError as exc:
-        console.print(f"[red]Errore fetch:[/red] {exc}")
-        shutil.rmtree(pending_dir, ignore_errors=True)
-        raise typer.Exit(code=1) from exc
+        raise
     except Exception as exc:
         console.print(f"[red]Errore fetch inatteso:[/red] {exc}")
         shutil.rmtree(pending_dir, ignore_errors=True)
-        raise typer.Exit(code=1) from exc
+        raise
 
     # Promote pending → canonical fetch dir based on resolved metadata.
     final_fetch_dir = (
@@ -474,20 +577,24 @@ def run(
         manual_intervention=fetch_result.manual_intervention,
     )
 
+    renderer_choice = _renderer(renderer)
     job = TranslationJob(
         model=_effective_model(model),
         font_path=font_path,
         glossary_path=glossary,
         auto_glossary=auto_glossary,
         pre_dict_path=pre_dict,
+        renderer=renderer_choice,
         use_gpu=not no_gpu,
     )
     with _make_progress() as progress:
-        task_id = progress.add_task("Avvio…", total=3)
+        task_id = progress.add_task(
+            "Avvio…", total=_phase_total(renderer_choice, includes_package=True)
+        )
         on_phase = _phase_callback(progress, task_id)
         on_log = _log_callback(progress)
         try:
-            manifest = run_local(
+            return run_local(
                 final_fetch_dir,
                 out,
                 series=fetch_result.series,
@@ -495,7 +602,7 @@ def run(
                 chapter_title=fetch_result.chapter_title,
                 lang_source=lang_source,
                 lang_target=lang_target,
-                fmt=format,
+                fmt=fmt,
                 job=job,
                 on_phase=on_phase,
                 on_log=on_log,
@@ -506,11 +613,114 @@ def run(
         except Exception as exc:
             console.print(f"[red]Errore run-local:[/red] {exc}")
             console.print(f"[dim]Le pagine fetch restano in {final_fetch_dir} per debug.[/dim]")
-            raise typer.Exit(code=1) from exc
+            raise
 
-    console.print("[green]Completato[/green]")
-    for output_file in manifest.output_files:
-        console.print(output_file)
+
+def _run_all_chapters(
+    *,
+    url: str,
+    out: Path,
+    fmt: str,
+    model: str | None,
+    font_path: Path | None,
+    glossary: Path | None,
+    auto_glossary: bool,
+    pre_dict: Path | None,
+    renderer: str,
+    lang_source: str,
+    lang_target: str,
+    no_gpu: bool,
+    site: str,
+    skip_existing: bool,
+    continue_on_error: bool,
+) -> None:
+    try:
+        scraper = scraper_for_url(url, site=site)
+        chapters = asyncio.run(scraper.list_chapters(url))
+    except FetchError as exc:
+        console.print(f"[red]Errore lista capitoli:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if not chapters:
+        console.print("[red]Errore:[/red] nessun capitolo trovato.")
+        raise typer.Exit(code=1)
+
+    console.print(
+        f"[green]✓[/green] Trovati [bold]{len(chapters)}[/bold] capitoli con "
+        f"adapter [bold]{scraper.name}[/bold]."
+    )
+    failures: list[tuple[ChapterLink, str]] = []
+    completed = 0
+    skipped = 0
+
+    for index, chapter in enumerate(chapters, start=1):
+        label = f"{chapter.chapter_number}"
+        console.rule(f"[bold]Capitolo {label}[/bold] ({index}/{len(chapters)})")
+        if skip_existing and _chapter_outputs_exist(
+            chapter,
+            out=out,
+            fmt=fmt,
+            lang_target=lang_target,
+        ):
+            skipped += 1
+            console.print(f"[yellow]skip[/yellow] output già presente per capitolo {label}.")
+            continue
+
+        try:
+            manifest = _run_url_once(
+                url=chapter.url,
+                out=out,
+                fmt=fmt,
+                model=model,
+                font_path=font_path,
+                glossary=glossary,
+                auto_glossary=auto_glossary,
+                pre_dict=pre_dict,
+                renderer=renderer,
+                lang_source=lang_source,
+                lang_target=lang_target,
+                no_gpu=no_gpu,
+                site=site,
+            )
+        except Exception as exc:
+            failures.append((chapter, str(exc)))
+            console.print(f"[red]Errore capitolo {label}:[/red] {exc}")
+            if not continue_on_error:
+                raise typer.Exit(code=1) from exc
+            continue
+
+        completed += 1
+        for output_file in manifest.output_files:
+            console.print(output_file)
+
+    console.rule("[bold]Batch completato[/bold]")
+    console.print(
+        f"[green]completati[/green]: {completed}  "
+        f"[yellow]saltati[/yellow]: {skipped}  "
+        f"[red]falliti[/red]: {len(failures)}"
+    )
+    if failures:
+        for chapter, error in failures:
+            console.print(f"[red]fail[/red] ch. {chapter.chapter_number}: {error}")
+        raise typer.Exit(code=1)
+
+
+def _chapter_outputs_exist(
+    chapter: ChapterLink,
+    *,
+    out: Path,
+    fmt: str,
+    lang_target: str,
+) -> bool:
+    if not chapter.series:
+        return False
+    base = f"{slugify(chapter.series)}-{slugify(chapter.chapter_number)}-{lang_target}"
+    expected: list[Path] = []
+    if fmt in {"pdf", "both"}:
+        expected.append(out / f"{base}.pdf")
+    if fmt in {"cbz", "both"}:
+        expected.append(out / f"{base}.cbz")
+    return bool(expected) and all(path.exists() for path in expected)
 
 
 @app.command()
@@ -642,6 +852,29 @@ def _print_check(check: DoctorCheck) -> None:
 
 def _effective_model(model: str | None) -> str:
     return model or Settings().default_model
+
+
+def _renderer(value: str) -> Literal["mitr-default", "mitr-manga2eng", "custom-postprocess"]:
+    normalized = value.strip().lower()
+    allowed = {"mitr-default", "mitr-manga2eng", "custom-postprocess"}
+    if normalized not in allowed:
+        raise typer.BadParameter(
+            f"renderer non supportato: {value!r}. Usa: {', '.join(sorted(allowed))}."
+        )
+    return cast(Literal["mitr-default", "mitr-manga2eng", "custom-postprocess"], normalized)
+
+
+def _phase_total(
+    renderer: Literal["mitr-default", "mitr-manga2eng", "custom-postprocess"],
+    *,
+    includes_package: bool,
+) -> int:
+    total = 2  # collect + translate
+    if renderer == "custom-postprocess":
+        total += 1
+    if includes_package:
+        total += 1
+    return total
 
 
 glossary_app = typer.Typer(

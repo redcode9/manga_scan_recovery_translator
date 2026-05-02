@@ -16,7 +16,7 @@ from PIL import Image
 from typer.testing import CliRunner
 
 from msrt.cli import app
-from msrt.scrape.base import ChapterScraper, FetchedPage, FetchError, FetchResult
+from msrt.scrape.base import ChapterLink, ChapterScraper, FetchedPage, FetchError, FetchResult
 
 
 def _real_png_bytes(seed: int = 0x10) -> bytes:
@@ -33,13 +33,32 @@ class _FakeMangaDexLikeScraper(ChapterScraper):
     name = "fakemd"
     raise_in_fetch: type[BaseException] | None = None
 
+    def __init__(self) -> None:
+        self.fetch_urls: list[str] = []
+
     def matches(self, url: str) -> bool:
         return "fake-test" in url
+
+    async def list_chapters(self, url: str) -> list[ChapterLink]:
+        return [
+            ChapterLink(
+                url=f"{url.rstrip('/')}/chapter-0",
+                chapter_number="0",
+                series="Fake Series",
+            ),
+            ChapterLink(
+                url=f"{url.rstrip('/')}/chapter-1",
+                chapter_number="1",
+                series="Fake Series",
+            ),
+        ]
 
     async def fetch(self, url: str, output_dir: Path) -> FetchResult:
         if self.raise_in_fetch is not None:
             raise self.raise_in_fetch("simulated fetch failure")
+        self.fetch_urls.append(url)
         output_dir.mkdir(parents=True, exist_ok=True)
+        chapter_number = url.rsplit("chapter-", 1)[-1] if "chapter-" in url else "42"
         pages = []
         for index in (1, 2):
             page_path = output_dir / f"{index:03d}.png"
@@ -56,7 +75,7 @@ class _FakeMangaDexLikeScraper(ChapterScraper):
             )
         return FetchResult(
             series="Fake Series",
-            chapter_number="42",
+            chapter_number=chapter_number,
             chapter_title="Pilot",
             source_url=url,
             strategy="fake-md",
@@ -144,6 +163,28 @@ def test_run_unsupported_url_exits_one(tmp_path: Path, monkeypatch) -> None:  # 
     )
     assert result.exit_code == 1
     assert "Nessun adapter supporta" in result.stdout
+
+
+def test_run_invalid_renderer_fails_before_fetch(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    fake = _patch_fake_scraper(monkeypatch)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "https://fake-test.example/chapter/abc",
+            "--out",
+            str(tmp_path / "out"),
+            "--i-own-rights",
+            "--renderer",
+            "bad-renderer",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert fake.fetch_urls == []
 
 
 def test_run_orchestrates_fetch_then_local_pipeline(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -310,8 +351,54 @@ def test_run_help_lists_url_orchestration_flags() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["run", "--help"])
     assert result.exit_code == 0
-    for flag in ("--site", "--i-own-rights", "--format", "--model"):
+    for flag in ("--site", "--i-own-rights", "--format", "--model", "--all-chapters"):
         assert flag in result.stdout
+
+
+def test_run_all_chapters_orchestrates_every_chapter(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _patch_fake_scraper(monkeypatch)
+    calls: list[Path] = []
+
+    from msrt.models import RunManifest
+
+    def stub(image_dir, out_dir, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(image_dir)
+        return RunManifest.model_validate(
+            {
+                "msrt_version": "0.0.0",
+                "command": "stub",
+                "input": {"type": "url", "page_count": 2, "url": "http://x"},
+                "page_order": ["001.png", "002.png"],
+                "page_hashes": {"001.png": "sha256:a", "002.png": "sha256:b"},
+                "model": {"alias": "gpt", "resolved_id": "gpt-5.5", "provider": "openai"},
+                "engine": {"type": "subprocess"},
+                "output_files": [str(out_dir / f"fake-{len(calls)}.pdf")],
+                "fetch": kwargs.get("fetch_metadata"),
+            }
+        )
+
+    monkeypatch.setattr("msrt.cli.run_local", stub)
+
+    runner = CliRunner()
+    out_dir = tmp_path / "out"
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "https://fake-test.example/chapter/abc",
+            "--all-chapters",
+            "--out",
+            str(out_dir),
+            "--i-own-rights",
+            "--no-gpu",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert len(calls) == 2
+    assert calls[0].name == "0"
+    assert calls[1].name == "1"
 
 
 @pytest.fixture(autouse=True)

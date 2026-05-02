@@ -11,13 +11,15 @@ CLI Python che, partendo da una cartella di immagini manga (MVP) o da un URL di 
 - comando `msrt fetch <URL> --i-own-rights` scarica un capitolo da MangaDex (API ufficiale, At-Home server) in una cartella locale pronta per `run-local`;
 - comando `msrt run <URL> --i-own-rights` orchestra fetch + traduzione + packaging in un singolo passo;
 - adapter MangaFire best-effort validato su Wistoria chapter 51: usa gli URL immagine esposti dal reader e mantiene browser capture come fallback automatico;
+- batch MangaFire best-effort con `msrt run <URL> --all-chapters --i-own-rights`: scopre i capitoli dal reader e produce un PDF/CBZ per capitolo, saltando gli output già presenti di default;
+- postprocess bubble-aware attivo di default (`--renderer custom-postprocess`): ingrandisce il testo già renderizzato dentro bubble bianche quando c'è spazio, lasciando invariato il testo fuori bubble;
 - impacchetta cartelle di immagini in CBZ (con `ComicInfo.xml`) o PDF;
 - proxy LiteLLM locale con `msrt server up|down|status` e diagnostica con `msrt doctor`;
 - subapp `msrt glossary {build,show,list,path,forget}` per ispezionare il cache di serie.
 
 **Cosa farà nelle prossime release**:
-- v0.3: hardening residuo MangaFire e regressioni su altri capitoli.
-- v0.4+: generic scraper euristico, fallback con vision LLM, post-processing custom per preservazione font/colore piena, supporto LLM locali via Ollama.
+- v0.3: hardening residuo MangaFire, regressioni su altri capitoli e tuning del postprocess bubble-aware.
+- v0.4+: generic scraper euristico, fallback con vision LLM, post-processing strutturato con polygon/mask quando MITR espone JSON stabile, supporto LLM locali via Ollama.
 
 **Cosa NON fa**:
 - Non promette di funzionare su "qualsiasi sito": estrazione **best-effort** con adapter ufficiali e fallback.
@@ -90,6 +92,12 @@ msrt run https://mangadex.org/chapter/<UUID> --i-own-rights --format pdf
 
 # One-shot best-effort da MangaFire: prova reader-network, poi browser capture/manual check
 msrt run https://mangafire.to/read/<slug>/en/chapter-44 --i-own-rights --format pdf
+
+# Batch MangaFire: tutti i capitoli esposti dal reader, un PDF per capitolo
+msrt run https://mangafire.to/read/<slug>/en/chapter-0 --all-chapters --i-own-rights --format pdf
+
+# Disabilita il postprocess bubble-aware se vuoi l'output puro di MITR
+msrt run-local ./pages --renderer mitr-manga2eng --format pdf --series "Test" --chapter 1
 
 # Verifica prerequisiti (usa MSRT_MODEL se --model è omesso)
 msrt doctor

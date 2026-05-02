@@ -14,11 +14,12 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass, field
+from html import unescape
 from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
-from msrt.scrape.base import ChapterScraper, FetchedPage, FetchError, FetchResult
+from msrt.scrape.base import ChapterLink, ChapterScraper, FetchedPage, FetchError, FetchResult
 from msrt.scrape.browser_capture import BrowserCaptureEngine, BrowserCaptureEngineProtocol
 from msrt.scrape.downloader import (
     DownloadError,
@@ -51,9 +52,17 @@ class MangaFireReaderPages:
     capture_mode: str = "browser-network"
 
 
+@dataclass(frozen=True)
+class MangaFireChapterIndex:
+    chapters: list[ChapterLink]
+
+
 class MangaFireReaderResolverProtocol(Protocol):
     async def resolve(self, url: str) -> MangaFireReaderPages:
         """Resolve ``url`` to ordered page image URLs."""
+
+    async def list_chapters(self, url: str) -> MangaFireChapterIndex:
+        """Resolve ``url`` to every chapter URL exposed by the reader."""
 
 
 @register
@@ -176,6 +185,24 @@ class MangaFireScraper(ChapterScraper):
             manual_intervention=capture.manual_intervention,
         )
 
+    async def list_chapters(self, url: str) -> list[ChapterLink]:
+        metadata = _metadata_from_url(url)
+        if metadata is None:
+            raise FetchError(
+                f"URL MangaFire non valido: {url!r}. Atteso "
+                "https://mangafire.to/read/<slug>/<lang>/chapter-<N>."
+            )
+        result = await self._reader_resolver.list_chapters(url)
+        return [
+            ChapterLink(
+                url=chapter.url,
+                chapter_number=chapter.chapter_number,
+                title=chapter.title,
+                series=chapter.series or metadata.series,
+            )
+            for chapter in result.chapters
+        ]
+
 
 class MangaFireReaderResolver:
     """Resolve page image URLs from MangaFire's reader network response.
@@ -191,6 +218,33 @@ class MangaFireReaderResolver:
         self._headless = headless
 
     async def resolve(self, url: str) -> MangaFireReaderPages:
+        text = await self._first_reader_payload(
+            url,
+            response_path_fragment="/ajax/read/chapter/",
+            error_message="MangaFire non ha emesso la risposta reader con gli URL pagina",
+        )
+        return MangaFireReaderPages(image_urls=_image_urls_from_reader_payload(text))
+
+    async def list_chapters(self, url: str) -> MangaFireChapterIndex:
+        text = await self._first_reader_payload(
+            url,
+            response_path_fragment="/ajax/read/",
+            exclude_path_fragment="/ajax/read/chapter/",
+            error_message="MangaFire non ha emesso la risposta con la lista capitoli",
+        )
+        metadata = _metadata_from_url(url)
+        series = metadata.series if metadata is not None else None
+        chapters = _chapter_links_from_reader_payload(text, base_url=url, series=series)
+        return MangaFireChapterIndex(chapters=chapters)
+
+    async def _first_reader_payload(
+        self,
+        url: str,
+        *,
+        response_path_fragment: str,
+        exclude_path_fragment: str | None = None,
+        error_message: str,
+    ) -> str:
         try:
             from playwright.async_api import TimeoutError as PlaywrightTimeoutError
             from playwright.async_api import async_playwright
@@ -211,9 +265,11 @@ class MangaFireReaderResolver:
             payload: asyncio.Future[str] = loop.create_future()
 
             async def capture_reader_response(response: Any) -> None:
-                if payload.done():
+                if payload.done() or response.status != 200:
                     return
-                if "/ajax/read/chapter/" not in response.url or response.status != 200:
+                if response_path_fragment not in response.url:
+                    return
+                if exclude_path_fragment and exclude_path_fragment in response.url:
                     return
                 try:
                     payload.set_result(await response.text())
@@ -228,17 +284,14 @@ class MangaFireReaderResolver:
             )
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-                text = await asyncio.wait_for(payload, timeout=_READER_RESPONSE_TIMEOUT_MS / 1000)
+                return await asyncio.wait_for(payload, timeout=_READER_RESPONSE_TIMEOUT_MS / 1000)
             except (TimeoutError, PlaywrightTimeoutError) as exc:
                 raise FetchError(
-                    "MangaFire non ha emesso la risposta reader con gli URL pagina "
-                    f"entro {_READER_RESPONSE_TIMEOUT_MS // 1000}s."
+                    f"{error_message} entro {_READER_RESPONSE_TIMEOUT_MS // 1000}s."
                 ) from exc
             finally:
                 await context.close()
                 await browser.close()
-
-        return MangaFireReaderPages(image_urls=_image_urls_from_reader_payload(text))
 
 
 class _MangaFireMetadata:
@@ -290,6 +343,70 @@ def _image_urls_from_reader_payload(payload: str) -> list[str]:
         raise FetchError("MangaFire reader non ha esposto URL immagine validi.")
     indexed_urls.sort(key=lambda pair: pair[0])
     return [url for _index, url in indexed_urls]
+
+
+def _chapter_links_from_reader_payload(
+    payload: str,
+    *,
+    base_url: str,
+    series: str | None = None,
+) -> list[ChapterLink]:
+    try:
+        data = json.loads(payload)
+    except ValueError as exc:
+        raise FetchError("MangaFire chapter list ha risposto JSON non valido.") from exc
+    if not isinstance(data, dict) or data.get("status") != 200:
+        raise FetchError("MangaFire chapter list ha risposto con status non valido.")
+    result = data.get("result")
+    if not isinstance(result, dict):
+        raise FetchError("MangaFire chapter list payload senza result oggetto.")
+    html = result.get("html")
+    if not isinstance(html, str) or not html:
+        raise FetchError("MangaFire chapter list payload senza HTML capitoli.")
+
+    chapters: dict[str, ChapterLink] = {}
+    for anchor in re.findall(r"<a\b[^>]*>", html, flags=re.IGNORECASE):
+        href = _html_attr(anchor, "href")
+        if href is None:
+            continue
+        number = _html_attr(anchor, "data-number") or _chapter_number_from_href(href)
+        if number is None:
+            continue
+        title = _html_attr(anchor, "title")
+        absolute_url = urljoin(base_url, unescape(href))
+        chapters[number] = ChapterLink(
+            url=absolute_url,
+            chapter_number=number,
+            title=title or None,
+            series=series,
+        )
+    if not chapters:
+        raise FetchError("MangaFire non ha esposto link capitoli validi.")
+    return sorted(chapters.values(), key=lambda chapter: _chapter_sort_key(chapter.chapter_number))
+
+
+def _html_attr(tag: str, attr: str) -> str | None:
+    match = re.search(
+        rf"""\b{re.escape(attr)}\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))""",
+        tag,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    value = next(group for group in match.groups() if group is not None)
+    return unescape(value).strip()
+
+
+def _chapter_number_from_href(href: str) -> str | None:
+    match = re.search(r"/chapter-([^/?#]+)", href, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return unescape(match.group(1)).strip() or None
+
+
+def _chapter_sort_key(value: str) -> tuple[int, tuple[int, ...], str]:
+    parts = tuple(int(part) for part in re.findall(r"\d+", value))
+    return (0 if parts else 1, parts, value)
 
 
 def _reader_image_item(item: object, fallback_index: int) -> tuple[int, str] | None:

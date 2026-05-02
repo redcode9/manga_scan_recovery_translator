@@ -12,9 +12,10 @@ from PIL import Image
 from msrt.scrape.adapters.mangafire import (
     MangaFireReaderPages,
     MangaFireScraper,
+    _chapter_links_from_reader_payload,
     _image_urls_from_reader_payload,
 )
-from msrt.scrape.base import FetchError
+from msrt.scrape.base import ChapterLink, FetchError
 from msrt.scrape.browser_capture import BrowserCapturedPage, BrowserCaptureResult
 from msrt.scrape.downloader import DownloadedFile
 from msrt.scrape.registry import scraper_for_url
@@ -84,6 +85,29 @@ class _FakeReaderResolver:
             ],
             warnings=["reader-network warning"],
         )
+
+    async def list_chapters(self, url: str):  # type: ignore[no-untyped-def]
+        self.seen_url = url
+        if self.raise_error:
+            raise FetchError("chapter list non disponibile")
+        return type(
+            "FakeIndex",
+            (),
+            {
+                "chapters": [
+                    ChapterLink(
+                        url=f"{url.rsplit('/', 1)[0]}/chapter-0",
+                        chapter_number="0",
+                        series="Wistoria",
+                    ),
+                    ChapterLink(
+                        url=f"{url.rsplit('/', 1)[0]}/chapter-1",
+                        chapter_number="1",
+                        series="Wistoria",
+                    ),
+                ]
+            },
+        )()
 
 
 @pytest.mark.parametrize(
@@ -215,3 +239,56 @@ def test_image_urls_from_reader_payload_sorts_by_page_number() -> None:
 def test_image_urls_from_reader_payload_rejects_missing_images() -> None:
     with pytest.raises(FetchError, match="senza immagini"):
         _image_urls_from_reader_payload('{"status":200,"result":{"html":"no pages"}}')
+
+
+def test_chapter_links_from_reader_payload_sorts_chapters() -> None:
+    payload = """
+    {
+      "status": 200,
+      "result": {
+        "html": "<ul><li><a href=\\"/read/wistoria.abc/en/chapter-2\\" data-number=\\"2\\" title=\\"B\\">Chap 2</a></li><li><a href=\\"/read/wistoria.abc/en/chapter-0\\" data-number=\\"0\\" title=\\"A\\">Chap 0</a></li></ul>"
+      }
+    }
+    """
+
+    chapters = _chapter_links_from_reader_payload(
+        payload,
+        base_url="https://mangafire.to/read/wistoria.abc/en/chapter-1",
+        series="Wistoria",
+    )
+
+    assert [chapter.chapter_number for chapter in chapters] == ["0", "2"]
+    assert chapters[0].url == "https://mangafire.to/read/wistoria.abc/en/chapter-0"
+    assert chapters[0].series == "Wistoria"
+
+
+def test_chapter_links_from_reader_payload_accepts_single_quotes_and_href_number() -> None:
+    payload = """
+    {
+      "status": 200,
+      "result": {
+        "html": "<a href='/read/wistoria.abc/en/chapter-10' title='Ten'>10</a>"
+      }
+    }
+    """
+
+    chapters = _chapter_links_from_reader_payload(
+        payload,
+        base_url="https://mangafire.to/read/wistoria.abc/en/chapter-1",
+        series="Wistoria",
+    )
+
+    assert len(chapters) == 1
+    assert chapters[0].chapter_number == "10"
+    assert chapters[0].title == "Ten"
+
+
+def test_mangafire_list_chapters_uses_reader_resolver() -> None:
+    resolver = _FakeReaderResolver()
+    scraper = MangaFireScraper(reader_resolver=resolver)
+    url = "https://mangafire.to/read/wistoria-wand-and-swordd.02n57/en/chapter-44"
+
+    chapters = _run(scraper.list_chapters(url))
+
+    assert resolver.seen_url == url
+    assert [chapter.chapter_number for chapter in chapters] == ["0", "1"]

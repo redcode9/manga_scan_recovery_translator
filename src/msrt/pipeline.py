@@ -33,6 +33,7 @@ from msrt.translate.glossary import (
     load_or_build_glossary,
 )
 from msrt.translate.glossary_builder import GlossaryBuildError
+from msrt.translate.postprocess import apply_bubble_aware_postprocess
 
 EngineFactory = Callable[[Settings, Path], TranslationEngine]
 PhaseCallback = Callable[[str], None]
@@ -146,6 +147,7 @@ def build_manifest(
             "title": chapter.chapter_title or "",
             "language_source": chapter.language_source,
             "language_target": chapter.language_target,
+            "renderer": job.renderer,
         },
         fetch=fetch_metadata,
     )
@@ -274,6 +276,20 @@ def _collect_translated_files(
     return files
 
 
+def _postprocess_translated_files(
+    files: list[Path], out_dir: Path, job: TranslationJob
+) -> list[Path]:
+    """Apply optional postprocessing and return the files to package."""
+
+    if job.renderer != "custom-postprocess":
+        return files
+    report = apply_bubble_aware_postprocess(
+        files,
+        output_dir=out_dir / "postprocessed-pages",
+    )
+    return report.output_files
+
+
 def _write_mitr_log(log_dir: Path, stdout: str, stderr: str) -> Path:
     """Persist MITR's stdout+stderr for post-mortem debugging.
 
@@ -370,8 +386,11 @@ def translate_only(
         # does this before packaging; ``translate_only`` skips packaging but the
         # check is just as important here — otherwise an exit-0 silent failure
         # leaves the user with an incomplete output dir and no surfaced error.
-        _collect_translated_files(chapter, translated_dir, log_dir=log_dir)
-        manifest.output_files = [str(result.output_dir)]
+        translated_files = _collect_translated_files(chapter, translated_dir, log_dir=log_dir)
+        if job.renderer == "custom-postprocess":
+            phase("postprocess")
+        output_files = _postprocess_translated_files(translated_files, out_dir, job)
+        manifest.output_files = [str(output_files[0].parent if output_files else result.output_dir)]
     except Exception as exc:
         manifest.errors.append(str(exc))
         manifest.finish()
@@ -456,6 +475,9 @@ def run_local(
         manifest.engine.mitr_version = "unknown"
 
         translated_files = _collect_translated_files(chapter, translated_dir, log_dir=log_dir)
+        if job.renderer == "custom-postprocess":
+            phase("postprocess")
+        translated_files = _postprocess_translated_files(translated_files, out_dir, job)
 
         phase("package")
         output_files = package_outputs(translated_files, chapter, out_dir, fmt)

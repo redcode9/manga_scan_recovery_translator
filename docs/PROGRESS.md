@@ -653,6 +653,48 @@ Quality observation:
   massimo font che rientra nel poligono/bbox; non-bubble text = preserva scala
   originale.
 
+### v0.3e — MangaFire all-chapters + bubble-aware bridge (2026-05-02)
+
+Decisione prodotto: l'utente vuole passare un URL di un manga e ottenere tutti
+i PDF dei capitoli disponibili, non lanciare manualmente un comando per ogni
+capitolo. Per MangaFire la struttura URL è stabile (`/read/<slug>/<lang>/chapter-N`)
+e il reader espone già l'indice capitoli nella risposta `/ajax/read/<hid>/chapter/<lang>`.
+
+Implementazione:
+- `ChapterScraper.list_chapters(url)` diventa parte del contratto opzionale
+  degli adapter; default = `FetchError("non supporta --all-chapters")`.
+- `MangaFireScraper.list_chapters()` usa `MangaFireReaderResolver` per osservare
+  la normale risposta reader con la lista capitoli, estrae link da HTML,
+  supporta attributi con doppi apici/singoli apici e ricava `chapter_number`
+  anche dall'href se `data-number` manca.
+- `msrt run <URL> --all-chapters --i-own-rights` esegue batch sequenziale:
+  lista capitoli → per ogni capitolo `_run_url_once()` → fetch cache in
+  `out/.msrt-fetch/<site>/<series>/<chapter>/` → `run_local` → PDF/CBZ.
+- `--skip-existing` è attivo di default: se il PDF/CBZ atteso è già presente,
+  il capitolo viene saltato. `--continue-on-error` è attivo di default per
+  evitare che un singolo capitolo rotto fermi un batch lungo.
+- Manifest e cache restano per-capitolo; non c'è ancora un manifest batch
+  aggregato. Per ora il riepilogo CLI elenca completati/saltati/falliti.
+
+Postprocess bubble-aware:
+- Aggiunto `src/msrt/translate/postprocess.py` come bridge image-level prima
+  del postprocess strutturato v0.6: rileva componenti bianche chiuse che
+  sembrano bubble, trova il testo scuro interno, lo scala fino a occupare più
+  spazio disponibile e lascia invariato il testo fuori bubble.
+- `--renderer custom-postprocess` è ora il default dei comandi CLI orientati
+  all'utente (`translate`, `run-local`, `run`). Per debug o confronto si può
+  usare `--renderer mitr-manga2eng` per ottenere l'output puro MITR.
+- Limite noto: essendo image-level, non conosce polygon/mask/testo originale.
+  Funziona come miglioramento pragmatico sulle bubble bianche standard; la
+  preservazione piena font/colore/rotazione resta il target v0.6 con JSON MITR
+  o two-pass.
+
+Quality gate:
+- `uv run ruff check .` OK
+- `uv run ruff format --check .` OK
+- `uv run mypy src/msrt` OK (`28 source files`)
+- `uv run pytest -q` OK (`165 passed`)
+
 ### v0.2 — URL pipeline foundation + MangaDex pubblico
 
 Obiettivo: introdurre `msrt fetch <URL>` e `msrt run <URL>` con una pipeline URL reale, mantenendo MangaDex come adapter pubblico e testabile via fixture anche quando la rete MangaDex sulla macchina utente è bloccata.
@@ -723,7 +765,7 @@ Decisioni browser capture:
 - [x] Qualità: viewport alto, `deviceScaleFactor` configurabile e validazione dimensioni minime. Warning low-res fine-grained da raffinare dopo E2E reale.
 - [x] Navigazione pagine: reader paginato iniziale con next controls/ArrowRight; stop su page count o duplicato hash. Long-strip rimandato a patch successiva se emerge dal sito reale.
 - [x] Manifest: registrare strategy, viewport, device scale factor, numero pagine catturate, eventuale `manual_intervention=true`.
-- [x] Test: test offline su candidate selection/capture metadata; E2E manuale su MangaFire chapter Wistoria ancora da eseguire.
+- [x] Test: test offline su candidate selection/capture metadata; E2E manuale su MangaFire chapter 51 eseguito e riuscito.
 
 ---
 
@@ -745,7 +787,7 @@ Decisioni browser capture:
 - **Fallback browser capture deciso**: quando raw download/generic extraction falliscono ma il reader è visibile nel browser, `msrt` potrà catturare automaticamente le scan come immagini locali e proseguire con la pipeline. Se serve verifica umana, il tool mette in pausa e aspetta l'intervento utente, senza bypass.
 - ~~MangaFire chapter 51 non scaricabile via browser-capture puro~~ → chiuso in v0.3d con reader-network: osserva la normale risposta `/ajax/read/chapter/<id>` e scarica `result.images`; browser-capture resta fallback.
 - **OCR artifacts su nomi compatti**: limite di Model48pxOCR. Mitigazione parziale via system prompt; soluzione completa con two-pass v0.6 + series glossary.
-- **Font troppo piccolo nelle bubble**: emerso leggendo il PDF del capitolo 50 e confermato visivamente su chapter 51 pagina 001. Workaround attuale: renderer MITR default. Soluzione pianificata: postprocess custom bubble-aware con auto-fit massimizzante dentro bubble e preservazione scala originale fuori bubble.
+- **Font troppo piccolo nelle bubble**: emerso leggendo il PDF del capitolo 50 e confermato visivamente su chapter 51 pagina 001. Mitigazione v0.3e: postprocess image-level bubble-aware attivo di default. Soluzione completa pianificata: postprocess strutturato v0.6 con polygon/mask/rotation e preservazione scala originale fuori bubble.
 
 ---
 
@@ -755,5 +797,5 @@ Decisioni browser capture:
 - ~~Test unit per `SubprocessEngine._command()` con la nuova struttura~~ → chiuso in v0.1.z (`tests/test_engine.py` riscritto).
 - Decidere default `GIT_REF` in `install-mitr.sh`: `main` (latest, può rompersi) vs `3abfc47` (stabile, può invecchiare).
 - ~~Formalizzare e implementare `browser-capture` come fallback automatico di `msrt run <URL>` dopo v0.2 foundation~~ → foundation chiusa in v0.3-dev; resta E2E reale MangaFire + raffinamento selettori.
-- Implementare postprocess typesetting bubble-aware: classificare bubble vs non-bubble, massimizzare font dentro bubble, preservare dimensione originale fuori bubble.
+- ~~Implementare mitigazione bubble-aware per testo troppo piccolo~~ → chiuso in v0.3e come bridge image-level. Resta il postprocess typesetting pieno v0.6 basato su polygon/mask/rotation.
 - Documentare in `docs/PROVIDER_NOTES.md` il vincolo `temperature=1` di GPT-5.5 e il workaround via `gpt_config` YAML.
