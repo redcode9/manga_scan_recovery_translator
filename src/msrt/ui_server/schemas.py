@@ -25,7 +25,12 @@ from pydantic import BaseModel, ConfigDict, Field
 # ----------------------------------------------------------------------------
 
 JobKind = Literal["local", "url", "url_batch"]
-JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
+# ``partial`` is a terminal state distinct from ``succeeded`` and
+# ``failed``: the runner finished without raising but at least one
+# chapter went into ``chapters_failed``. Surfacing it lets the UI
+# offer "Retry failed" without misrepresenting the run as a clean
+# success or as a total failure.
+JobStatus = Literal["queued", "running", "succeeded", "partial", "failed", "cancelled"]
 JobPhase = Literal[
     "queued",
     "preflight",

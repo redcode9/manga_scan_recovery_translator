@@ -2,24 +2,21 @@
 
 CLI Python che, partendo da una cartella di immagini manga (MVP) o da un URL di capitolo (estensioni successive), produce un archivio leggibile (CBZ o PDF) con il testo tradotto da inglese a italiano.
 
-> ⚠️ **Stato del progetto: in sviluppo (v0.3-dev).** Questo repository è un wrapper attorno a [`manga-image-translator`](https://github.com/zyddnys/manga-image-translator) (MITR), che resta una **dipendenza esterna** installata e mantenuta dall'utente.
+> ⚠️ **Stato del progetto: in sviluppo (v0.4e).** Questo repository è un wrapper attorno a [`manga-image-translator`](https://github.com/zyddnys/manga-image-translator) (MITR), che resta una **dipendenza esterna** installata e mantenuta dall'utente.
 
 ## Cosa fa (e cosa non fa)
 
-**Cosa fa oggi (v0.3-dev)**:
+**Cosa fa oggi (v0.4e)**:
 - pipeline locale `msrt run-local` validata end-to-end su capitoli reali (50 pagine in ~24 min su Mac MPS): traduzione EN→IT con MITR + LiteLLM proxy + auto-glossary di serie via LLM (cache persistente in `~/.cache/msrt/glossaries/`);
-- comando `msrt fetch <URL> --i-own-rights` scarica un capitolo da MangaDex (API ufficiale, At-Home server) in una cartella locale pronta per `run-local`;
-- comando `msrt run <URL> --i-own-rights` orchestra fetch + traduzione + packaging in un singolo passo;
-- adapter MangaFire best-effort validato su Wistoria chapter 51: usa gli URL immagine esposti dal reader e mantiene browser capture come fallback automatico;
-- batch MangaFire best-effort con `msrt run <URL> --all-chapters --i-own-rights`: scopre i capitoli dal reader e produce un PDF/CBZ per capitolo, saltando gli output già presenti di default;
+- `msrt run <URL> --i-own-rights` orchestra fetch (MangaDex API o adapter MangaFire best-effort) + traduzione + packaging in un singolo passo, anche batch con `--all-chapters`;
 - postprocess bubble-aware attivo di default (`--renderer custom-postprocess`): ingrandisce il testo già renderizzato dentro bubble bianche quando c'è spazio, lasciando invariato il testo fuori bubble;
+- `msrt ui` avvia in **un solo comando** un backend FastAPI locale + bundle React buildato e apre il browser su una UI completa: dashboard, libreria, dry-run batch, job in tempo reale via SSE, setup chiavi (portachiavi macOS preferito, fallback `.env`), retry capitoli falliti, scarico bundle diagnostica redatto;
 - impacchetta cartelle di immagini in CBZ (con `ComicInfo.xml`) o PDF;
 - proxy LiteLLM locale con `msrt server up|down|status` e diagnostica con `msrt doctor`;
 - subapp `msrt glossary {build,show,list,path,forget}` per ispezionare il cache di serie.
 
 **Cosa farà nelle prossime release**:
-- v0.3: hardening residuo MangaFire, regressioni su altri capitoli e tuning del postprocess bubble-aware.
-- v0.4: UI locale desktop/web per MacBook, autoconfigurante, con progress live e job history (vedi [`docs/DESKTOP_UI_PLAN.md`](docs/DESKTOP_UI_PLAN.md)).
+- v0.4 stretch: app desktop nativa Tauri (lo scaffold `apps/desktop/src-tauri/` è incluso ma non avvia ancora il backend Python come sidecar — finché non è completo il flusso supportato è la web UI servita da `msrt ui`);
 - v0.5+: generic scraper euristico, fallback con vision LLM, post-processing strutturato con polygon/mask quando MITR espone JSON stabile, supporto LLM locali via Ollama.
 
 **Cosa NON fa**:
@@ -82,6 +79,10 @@ msrt doctor --model gpt
 ## Utilizzo
 
 ```bash
+# UI locale (consigliato): backend + web UI in un unico comando
+msrt ui
+# → 127.0.0.1:4001, builda apps/desktop se serve e apre il browser.
+
 # Tradurre una cartella di immagini → CBZ
 msrt translate ./pages --series "Test" --chapter 1 --out ./out
 
@@ -112,6 +113,26 @@ msrt doctor --paid-smoke
 # Primo E2E locale consigliato con OpenAI
 msrt run-local ./pages --format pdf --series "Test" --chapter 1
 ```
+
+### UI locale
+
+Una volta installato il pacchetto, `msrt ui` avvia un server FastAPI a
+`127.0.0.1:4001` che serve sia le API sia il bundle React (auto-buildato
+se mancante o stale rispetto a `apps/desktop/src/`). La UI permette di:
+
+- dashboard con stato LiteLLM / MITR / chiavi, e azioni rapide;
+- creare job locali (cartella) o da URL (singolo / batch) con guardrail `--i-own-rights`;
+- seguire il job in tempo reale (SSE), aprire i file output in nativo;
+- gestire chiavi API e modello di default (portachiavi macOS preferito, `.env` come fallback);
+- riprovare i capitoli falliti di un batch con un click;
+- scaricare uno snapshot diagnostica **redatto** (`$HOME → ~`, query string mascherate, prefissi chiave nascosti) da allegare alle issue.
+
+Per uso fuori repo o personalizzazione, valgono due variabili:
+
+- `MSRT_HOME=<path>` per forzare la radice del progetto (dove vivono `.env` e `configs/litellm.yaml`);
+- `MSRT_UI_DIST=<path>` per servire un bundle pre-buildato altrove (utile in deploy custom).
+
+Lo scaffold Tauri in `apps/desktop/src-tauri/` esiste ma **non è ancora supportato**: oggi non spawna il backend Python come sidecar e richiede `cargo` per la build, che non è installato di default.
 
 ## Provider LLM
 

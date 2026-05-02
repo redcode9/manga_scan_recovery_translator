@@ -132,7 +132,7 @@ class JobManager:
         job = self._jobs.get(job_id)
         if job is None:
             return False
-        if job.status in {"succeeded", "failed", "cancelled"}:
+        if job.status in {"succeeded", "partial", "failed", "cancelled"}:
             return False
         cancel_event = self._cancel_events.get(job_id)
         if cancel_event is not None:
@@ -190,7 +190,16 @@ class JobManager:
         terminal: JobStatus
         try:
             await self._runner(ctx)
-            terminal = "cancelled" if cancel_event.is_set() else "succeeded"
+            if cancel_event.is_set():
+                terminal = "cancelled"
+            elif job.chapters_failed > 0:
+                # Runner came back without raising, but some chapters
+                # went into the failed bucket (typical for batches with
+                # ``continue_on_error=True``). Surface that as a distinct
+                # terminal state so the UI can offer "Retry failed".
+                terminal = "partial"
+            else:
+                terminal = "succeeded"
         except asyncio.CancelledError:
             terminal = "cancelled"
         except Exception as exc:

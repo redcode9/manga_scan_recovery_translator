@@ -8,6 +8,8 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from msrt.paths import env_file_path
+
 ProviderName = Literal["anthropic", "openai", "google", "local"]
 
 
@@ -23,10 +25,16 @@ MODEL_ALIASES: dict[str, tuple[ProviderName, str, str]] = {
 
 
 class Settings(BaseSettings):
-    """Settings loaded from environment variables and `.env`."""
+    """Settings loaded from environment variables and ``.env``.
+
+    The ``.env`` location is resolved by ``msrt.paths.env_file_path``
+    so that ``msrt`` works the same regardless of where the user
+    launched it from. Tests that need full isolation can still pass
+    ``_env_file=None`` when instantiating ``Settings`` directly.
+    """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(env_file_path()),
         env_file_encoding="utf-8",
         extra="ignore",
     )

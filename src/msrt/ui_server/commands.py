@@ -103,6 +103,7 @@ def _invoke_run_local(
     fetch_metadata: ManifestFetch | None = None,
     input_type: str = "local",
     input_url: str | None = None,
+    manifest_name: str | None = None,
 ) -> RunManifest:
     """Synchronous wrapper that converts pipeline callbacks into SSE
     events. Runs in a worker thread (``asyncio.to_thread``) because
@@ -156,6 +157,7 @@ def _invoke_run_local(
         input_type=input_type,  # type: ignore[arg-type]
         input_url=input_url,
         fetch_metadata=fetch_metadata,
+        manifest_name=manifest_name,
     )
 
 
@@ -271,7 +273,7 @@ async def _run_url_batch_job(ctx: JobContext, url: str) -> None:
             ctx.save()
             continue
         try:
-            await _run_url_single_chapter(ctx, scraper.name, chapter.url)
+            await _run_url_single_chapter(ctx, scraper.name, chapter.url, batch=True)
             ctx.job.chapters_done += 1
         except Exception as exc:
             ctx.job.chapters_failed += 1
@@ -289,7 +291,9 @@ async def _run_url_batch_job(ctx: JobContext, url: str) -> None:
         ctx.save()
 
 
-async def _run_url_single_chapter(ctx: JobContext, site_name: str, url: str) -> None:
+async def _run_url_single_chapter(
+    ctx: JobContext, site_name: str, url: str, *, batch: bool = False
+) -> None:
     request = ctx.job.request
     options = request.options
 
@@ -322,6 +326,15 @@ async def _run_url_single_chapter(ctx: JobContext, site_name: str, url: str) -> 
         manual_intervention=result.manual_intervention,
     )
 
+    # Per-chapter manifest filename for batches so the next chapter
+    # doesn't overwrite this one's ``msrt-run.json``.
+    manifest_name: str | None = None
+    if batch:
+        manifest_name = (
+            f"msrt-run-{slugify(result.series)}-{slugify(result.chapter_number)}-"
+            f"{options.lang_target}.json"
+        )
+
     job_model = _build_translation_job(options)
     loop = asyncio.get_running_loop()
     manifest = await asyncio.to_thread(
@@ -338,8 +351,9 @@ async def _run_url_single_chapter(ctx: JobContext, site_name: str, url: str) -> 
         fetch_metadata=fetch_meta,
         input_type="url",
         input_url=url,
+        manifest_name=manifest_name,
     )
-    await _record_manifest(ctx, manifest)
+    await _record_manifest(ctx, manifest, manifest_name=manifest_name)
 
 
 # ----------------------------------------------------------------------------
@@ -377,12 +391,15 @@ def _chapter_outputs_exist(
     return bool(expected) and all(path.exists() for path in expected)
 
 
-async def _record_manifest(ctx: JobContext, manifest: RunManifest) -> None:
+async def _record_manifest(
+    ctx: JobContext, manifest: RunManifest, *, manifest_name: str | None = None
+) -> None:
     ctx.job.output_files.extend(manifest.output_files)
     if manifest.errors:
         ctx.job.errors.extend(manifest.errors)
     out_dir = ctx.job.request.out_dir
-    manifest_path = (out_dir / "msrt-run.json").resolve()
+    name = manifest_name or "msrt-run.json"
+    manifest_path = (out_dir / name).resolve()
     if str(manifest_path) not in ctx.job.manifest_paths:
         ctx.job.manifest_paths.append(str(manifest_path))
     for output in manifest.output_files:

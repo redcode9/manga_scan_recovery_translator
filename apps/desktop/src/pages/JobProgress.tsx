@@ -102,7 +102,12 @@ export function JobProgressPage() {
   );
 }
 
-const TERMINAL_STATES = new Set<JobStatus>(["succeeded", "failed", "cancelled"]);
+const TERMINAL_STATES = new Set<JobStatus>([
+  "succeeded",
+  "partial",
+  "failed",
+  "cancelled",
+]);
 
 function Header({
   job,
@@ -364,6 +369,7 @@ function Row({
 
 function statusTone(status: JobStatus) {
   if (status === "succeeded") return "ok";
+  if (status === "partial") return "warn";
   if (status === "failed") return "fail";
   if (status === "cancelled") return "warn";
   if (status === "running") return "info";
@@ -372,6 +378,7 @@ function statusTone(status: JobStatus) {
 
 function statusIcon(status: JobStatus) {
   if (status === "succeeded") return <CheckCircle2 size={12} />;
+  if (status === "partial") return <AlertTriangle size={12} />;
   if (status === "failed") return <XCircle size={12} />;
   if (status === "cancelled") return <Ban size={12} />;
   if (status === "running") return <Loader2 size={12} className="animate-spin" />;

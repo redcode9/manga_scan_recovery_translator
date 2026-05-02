@@ -12,6 +12,7 @@ export type JobStatus =
   | "queued"
   | "running"
   | "succeeded"
+  | "partial"
   | "failed"
   | "cancelled";
 

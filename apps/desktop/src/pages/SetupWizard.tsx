@@ -73,7 +73,7 @@ const PROVIDERS: ProviderConfig[] = [
 ];
 
 const MODEL_OPTIONS = [
-  { value: "sonnet", label: "sonnet — Anthropic Claude (default)" },
+  { value: "sonnet", label: "sonnet — Anthropic Claude" },
   { value: "opus", label: "opus — Anthropic Claude max quality" },
   { value: "gpt", label: "gpt — OpenAI flagship" },
   { value: "gpt-mini", label: "gpt-mini — OpenAI cheap/draft" },
@@ -158,6 +158,13 @@ function ProviderKeyCard({
     mutationFn: () => api.deleteKey(provider.keyName),
     onSuccess: onChange,
   });
+
+  const onRemove = () => {
+    const ok = window.confirm(
+      `Rimuovere la chiave ${provider.keyName}? L'azione cancella la voce dal portachiavi e dal file .env.`,
+    );
+    if (ok) remove.mutate();
+  };
   const smoke = useMutation({
     mutationFn: () => api.testModel(provider.testModel),
   });
@@ -194,7 +201,7 @@ function ProviderKeyCard({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={provider.placeholder}
-            className="w-full rounded-md border border-slate-200 px-3 py-2 font-mono text-sm focus:border-sky-400 focus:outline-none"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
           />
           <p className="mt-1 text-[11px] text-slate-400">
             Dove la trovo:{" "}
@@ -221,8 +228,8 @@ function ProviderKeyCard({
           <button
             type="button"
             disabled={busy || !present}
-            onClick={() => remove.mutate()}
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={onRemove}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Trash2 size={14} />
             Rimuovi
@@ -277,10 +284,15 @@ function DefaultModelCard({
 
   const options = useMemo(() => {
     const known = new Set(MODEL_OPTIONS.map((o) => o.value));
-    if (known.has(settings.default_model)) return MODEL_OPTIONS;
+    const current = settings.default_model;
+    const decorate = (entry: { value: string; label: string }) =>
+      entry.value === current
+        ? { ...entry, label: `${entry.label} — corrente` }
+        : entry;
+    if (known.has(current)) return MODEL_OPTIONS.map(decorate);
     return [
-      ...MODEL_OPTIONS,
-      { value: settings.default_model, label: `${settings.default_model} (custom)` },
+      ...MODEL_OPTIONS.map(decorate),
+      { value: current, label: `${current} (custom) — corrente` },
     ];
   }, [settings.default_model]);
 
@@ -305,7 +317,7 @@ function DefaultModelCard({
           <select
             value={selected}
             onChange={(e) => setSelected(e.target.value)}
-            className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
           >
             {options.map((option) => (
               <option key={option.value} value={option.value}>

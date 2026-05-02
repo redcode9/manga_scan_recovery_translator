@@ -38,6 +38,8 @@ from sse_starlette.sse import EventSourceResponse
 
 from msrt import __version__
 from msrt.config import Settings
+from msrt.paths import env_file_path, litellm_config_path
+from msrt.paths import frontend_dist_dir as resolve_frontend_dist
 from msrt.scrape.base import FetchError
 from msrt.scrape.registry import scraper_for_url
 from msrt.scrape.selection import (
@@ -57,6 +59,7 @@ from msrt.ui_server.doctor_api import build_doctor_report
 from msrt.ui_server.events import EventBroker
 from msrt.ui_server.jobs import JobManager
 from msrt.ui_server.library import load_entry, scan_library
+from msrt.ui_server.redact import redact_value
 from msrt.ui_server.schemas import (
     DoctorReport,
     DryRunChapter,
@@ -90,7 +93,7 @@ from msrt.ui_server.setup_api import (
 
 _LOG = logging.getLogger(__name__)
 
-LITELLM_CONFIG_PATH = Path("configs/litellm.yaml")
+LITELLM_CONFIG_PATH = litellm_config_path()
 
 
 def create_app(
@@ -105,7 +108,7 @@ def create_app(
     """
 
     if settings is None:
-        hydrate_process_env(env_path=Path.cwd() / ".env")
+        hydrate_process_env(env_path=env_file_path())
         resolved_settings = Settings()
     else:
         resolved_settings = settings
@@ -359,14 +362,19 @@ def create_app(
     @app.get("/api/diagnostics")
     def diagnostics() -> dict[str, Any]:
         """Snapshot for issue reports: doctor + presence flags +
-        recent jobs + platform info. Never includes API key values
-        or raw .env content. Errors strings come from the same
-        ``Job.errors`` list the UI already shows, so they're already
-        user-visible."""
+        recent jobs + platform info.
+
+        Redaction passes over the entire payload before it leaves the
+        process: ``$HOME`` is replaced with ``~``, URL query strings
+        are masked, and known API key prefixes (``sk-…``, ``AIza…``,
+        ``Bearer …``) are blanked. The response is therefore safe to
+        attach to a public issue, even though the raw values would
+        otherwise include ``/Users/<name>/...`` paths and full URLs.
+        """
 
         view = settings_view(resolved_settings)
         recent = manager.list_jobs()[:20]
-        return {
+        payload: dict[str, Any] = {
             "msrt_version": __version__,
             "platform": {
                 "system": platform.system(),
@@ -393,6 +401,7 @@ def create_app(
                 for j in recent
             ],
         }
+        return redact_value(payload)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------
     # Open path (native)
@@ -504,7 +513,7 @@ def _frontend_dist_dir() -> Path | None:
     been built, otherwise ``None``.
 
     Search order: env var ``MSRT_UI_DIST`` (override for packaged
-    deployments), then the canonical repo path relative to this file.
+    deployments), then the project root resolved by ``msrt.paths``.
     """
 
     import os
@@ -515,8 +524,7 @@ def _frontend_dist_dir() -> Path | None:
         if (candidate / "index.html").is_file():
             return candidate
 
-    repo_root = Path(__file__).resolve().parents[3]
-    candidate = repo_root / "apps" / "desktop" / "dist"
+    candidate = resolve_frontend_dist()
     if (candidate / "index.html").is_file():
         return candidate
     return None

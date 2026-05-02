@@ -665,6 +665,51 @@ def test_diagnostics_endpoint_returns_redacted_snapshot(
     assert payload["settings"]["has_openai_key"] is True
 
 
+def test_diagnostics_redacts_home_and_keylike_strings(
+    isolated_settings: Settings,
+) -> None:
+    """The redaction layer must mask:
+
+    - the user's HOME prefix in any path-shaped string,
+    - URL query string values (?token=, ?api_key=…),
+    - obvious API key prefixes (sk-…, AIza…) inside error messages.
+    """
+
+    home = str(Path.home())
+    object.__setattr__(isolated_settings, "mitr_bin_path", f"{home}/tools/mitr/.venv/bin/python")
+
+    with _client(isolated_settings) as client:
+        response = client.get("/api/diagnostics")
+        # Seed a job that surfaces a redactable error in the diagnostics
+        # ``recent_jobs`` slice.
+        manager = client.app.state.manager  # type: ignore[attr-defined]
+        from msrt.ui_server.schemas import Job, JobCreate, JobOptions
+
+        seeded = Job(
+            id="diag-test-1",
+            kind="local",
+            status="failed",
+            request=JobCreate(kind="local", input_dir=Path("/tmp/x"), options=JobOptions()),
+            errors=[
+                f"failure at {home}/Desktop/secret.png",
+                "leaked sk-ant-DIAG-TEST-ABCDEFGH1234567890",
+                "leaked AIzaDIAGTESTABCDEFGH12345678",
+                "url=https://example/test?api_key=DIAG-TEST-API-KEY-VALUE",
+            ],
+        )
+        manager._jobs[seeded.id] = seeded  # type: ignore[attr-defined]
+        response = client.get("/api/diagnostics")
+
+    assert response.status_code == 200
+    body = response.text
+    assert home not in body
+    assert "sk-ant-DIAG-TEST-ABCDEFGH1234567890" not in body
+    assert "AIzaDIAGTESTABCDEFGH12345678" not in body
+    assert "DIAG-TEST-API-KEY-VALUE" not in body
+    # The HOME-prefix mitr_bin_path is rewritten with ``~``.
+    assert "~/tools/mitr/.venv/bin/python" in body
+
+
 async def _failing_batch_runner(ctx: JobContext) -> None:
     """Simulate a batch where two chapters failed. Used to seed a job
     state the retry-failed endpoint can act on."""
@@ -704,6 +749,7 @@ def test_retry_failed_chapters_filters_to_failed_numbers(
                 break
             asyncio.run(asyncio.sleep(0.05))
         assert state["chapters_failed"] == 2
+        assert state["status"] == "partial"
 
         retry = client.post(f"/api/jobs/{original_id}/retry-failed")
 

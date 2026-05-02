@@ -23,19 +23,23 @@ _EPOCH = datetime.fromtimestamp(0, tz=UTC)
 def scan_library(out_dir: Path) -> list[LibraryEntry]:
     """Return every translated chapter known to ``out_dir``.
 
-    Looks for ``msrt-run.json`` files at the top level (single-job
-    layout used by ``run-local`` / single-URL ``run``). Batch runs
-    write per-chapter manifests inside subdirs that the user can also
-    surface — but per v0.4a we only handle the canonical case to keep
-    the contract simple. v0.4b will extend this when batch jobs land
-    a per-chapter manifest folder.
+    Surfaces both the canonical single-job layout (``msrt-run.json``
+    at the top level) and the per-chapter layout written by batches
+    (``msrt-run-<series>-<chapter>-<lang>.json``). Per-chapter
+    manifests live next to their PDFs/CBZs so they survive in-place
+    rerun/retry without colliding.
     """
 
     entries: list[LibraryEntry] = []
     if not out_dir.exists():
         return entries
 
+    seen: set[Path] = set()
     for manifest_path in _iter_manifests(out_dir):
+        resolved = manifest_path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
         entry = _load_manifest(manifest_path)
         if entry is not None:
             entries.append(entry)
@@ -61,18 +65,17 @@ def _iter_manifests(out_dir: Path) -> list[Path]:
     in caches like ``.msrt-fetch`` and ``.msrt-tmp``."""
 
     candidates: list[Path] = []
-    direct = out_dir / "msrt-run.json"
-    if direct.is_file():
-        candidates.append(direct)
-    # One level deeper is enough for the single-chapter layout that
-    # ``run-local`` produces. Subdirs starting with "." (cache, staging,
-    # tmp) are skipped on purpose.
+    # Top-level manifests: ``msrt-run.json`` (single chapter) and
+    # ``msrt-run-<series>-<chapter>-<lang>.json`` (one per chapter in
+    # batch runs). The glob covers both shapes.
+    candidates.extend(out_dir.glob("msrt-run*.json"))
+    # One level deeper for the layout where ``run-local`` was pointed
+    # at a per-chapter subdirectory. Cache / staging / tmp dirs (those
+    # starting with ".") are intentionally skipped.
     for child in out_dir.iterdir():
         if not child.is_dir() or child.name.startswith("."):
             continue
-        manifest = child / "msrt-run.json"
-        if manifest.is_file():
-            candidates.append(manifest)
+        candidates.extend(child.glob("msrt-run*.json"))
     return candidates
 
 

@@ -1,21 +1,23 @@
-// msrt desktop shell.
+// msrt desktop shell — SCAFFOLD ONLY.
 //
-// Avvia la UI Vite/React e si occupa di lanciare il backend Python
-// FastAPI in background, in modo che l'utente non debba mai aprire
-// un terminale. La porta del backend (default 4001) è passata alla
-// UI via variabile d'ambiente di runtime.
+// Stato attuale (v0.4e): il crate compila e mostra la UI ma NON
+// avvia il backend Python. Per usare l'app desktop oggi serve
+// avviare a mano `uv run msrt ui --no-build --no-open` in un
+// altro terminale; in dev Vite proxa /api → 127.0.0.1:4001.
 //
-// Strategia:
-//   - in dev (`tauri dev`) Vite serve la UI a 127.0.0.1:5173 e
-//     proxa /api → 127.0.0.1:4001. L'utente avvia il backend
-//     manualmente (`uv run msrt ui --no-build --no-open`) finché
-//     non aggiungiamo lo spawn integrato.
-//   - in produzione (`tauri build`) la UI è impacchettata nel
-//     binario e il backend viene spawnato come sidecar Python.
+// Cosa manca per dichiararla "production-ready":
+//   1. Spawn del backend come sidecar (`tauri::async_runtime::spawn`
+//      su `Command::new(python).arg("-m").arg("msrt").arg("ui")…`),
+//      con teardown sicuro in chiusura finestra.
+//   2. Health-check sull'avvio prima di mostrare la finestra.
+//   3. Icone bundle (`icons/*`) e firma codice.
+//   4. Verifica della build Tauri in CI (oggi richiede `cargo`
+//      che non è installato sulla macchina dev).
+//   5. Restringere ulteriormente la CSP in `tauri.conf.json`
+//      una volta noto l'intero set di endpoint richiesti.
 //
-// L'integrazione sidecar è documentata nel README ma non è ancora
-// implementata: lo step v0.4d aggiunge `tauri::async_runtime::spawn`
-// con `Command::new(python).arg("-m").arg("msrt").arg("ui")…`.
+// Finché questi punti non sono chiusi il flusso supportato resta
+// la web UI servita da `msrt ui`, non l'app nativa.
 
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),

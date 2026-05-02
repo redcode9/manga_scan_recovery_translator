@@ -24,6 +24,7 @@ from msrt import __version__
 from msrt.config import Settings
 from msrt.doctor import DoctorCheck, run_doctor
 from msrt.models import ManifestFetch, RunManifest, TranslationJob
+from msrt.paths import litellm_config_path
 from msrt.pipeline import (
     PhaseCallback,
     collect_local_chapter,
@@ -57,7 +58,11 @@ from msrt.translate.glossary_builder import (
     save_glossary,
 )
 
-LITELLM_CONFIG_PATH = Path("configs/litellm.yaml")
+# Resolved lazily via ``litellm_config_path()`` so a user who runs
+# ``msrt`` from outside the repo gets the right file. This module-level
+# constant is kept for back-compat with call sites that pass it as a
+# default Typer option value, but new code should prefer the function.
+LITELLM_CONFIG_PATH = litellm_config_path()
 
 app = typer.Typer(
     name="msrt",
@@ -877,17 +882,18 @@ def ui(
         )
         raise typer.Exit(code=1) from exc
 
-    repo_root = Path(__file__).resolve().parents[2]
-    desktop_dir = repo_root / "apps" / "desktop"
+    from msrt.paths import frontend_source_dir
+
+    desktop_dir = frontend_source_dir()
     dist_dir = desktop_dir / "dist"
 
-    if build and not dist_dir.is_dir():
+    if build:
         if not desktop_dir.is_dir():
             console.print(
                 f"[yellow]apps/desktop non trovato in {desktop_dir}. "
                 "Salto la build e avvio solo l'API.[/yellow]"
             )
-        else:
+        elif not dist_dir.is_dir() or _frontend_is_stale(desktop_dir, dist_dir):
             _build_frontend(desktop_dir)
 
     if dist_dir.is_dir():
@@ -948,6 +954,50 @@ def _build_frontend(desktop_dir: Path) -> None:
         console.print("[red]npm run build fallito; avvio solo l'API.[/red]")
 
 
+def _frontend_is_stale(desktop_dir: Path, dist_dir: Path) -> bool:
+    """Return True when sources are newer than the built bundle.
+
+    Compares the mtime of every relevant source file (``src/**``,
+    ``index.html``, ``package*.json``, ``vite.config.*``,
+    ``tsconfig*.json``, ``tailwind.config.*``) against
+    ``dist/index.html``. After a ``git pull`` this catches the
+    typical case where the backend bumped along with the UI but the
+    user still has yesterday's bundle on disk.
+    """
+
+    index = dist_dir / "index.html"
+    if not index.is_file():
+        return True
+    dist_mtime = index.stat().st_mtime
+
+    candidates: list[Path] = []
+    src_dir = desktop_dir / "src"
+    if src_dir.is_dir():
+        candidates.extend(src_dir.rglob("*"))
+    for name in (
+        "index.html",
+        "package.json",
+        "package-lock.json",
+        "vite.config.ts",
+        "vite.config.js",
+        "tsconfig.json",
+        "tsconfig.app.json",
+        "tailwind.config.ts",
+        "tailwind.config.js",
+    ):
+        candidate = desktop_dir / name
+        if candidate.is_file():
+            candidates.append(candidate)
+
+    for candidate in candidates:
+        try:
+            if candidate.is_file() and candidate.stat().st_mtime > dist_mtime:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 @app.command()
 def setup(
     yes: Annotated[
@@ -967,14 +1017,17 @@ def setup(
         typer.Option("--paid-smoke", help="Esegui smoke paid alla fine (chiede conferma)."),
     ] = False,
     project_root: Annotated[
-        Path,
+        Path | None,
         typer.Option("--project-root", help="Override radice progetto (per test)."),
-    ] = Path("."),
+    ] = None,
 ) -> None:
     """Wizard di primo setup: env, provider, MITR, LiteLLM."""
 
+    from msrt.paths import project_root as resolve_root
+
+    root = project_root.resolve() if project_root else resolve_root()
     code = run_setup(
-        project_root=project_root.resolve(),
+        project_root=root,
         yes=yes,
         install_mitr=not no_install_mitr,
         start_server=not no_server,

@@ -21,6 +21,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from msrt.config import Settings
+from msrt.paths import env_file_path
 from msrt.setup import save_env
 from msrt.translate.litellm_proxy import run_litellm_paid_smoke
 from msrt.ui_server.secrets import (
@@ -76,12 +77,14 @@ class DefaultModelResponse(BaseModel):
 
 
 def _env_path(settings: Settings) -> Path:
-    """Locate the project ``.env``. We resolve it relative to the
-    current working directory (where the user typically launches
-    ``msrt ui``); if missing, we still return the path so save_env can
-    create it on first save."""
+    """Locate the project ``.env`` via ``msrt.paths``. The path is
+    absolute and resolved against the project root (or the
+    ``MSRT_HOME`` override) so saves land in the same file the rest of
+    ``msrt`` reads from, regardless of where ``msrt ui`` was launched.
+    """
 
-    return Path.cwd() / ".env"
+    del settings  # currently unused; kept for future per-profile envs
+    return env_file_path()
 
 
 def save_api_key(request: SaveKeyRequest, settings: Settings) -> SecretReportResponse:

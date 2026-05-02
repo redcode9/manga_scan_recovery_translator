@@ -153,11 +153,30 @@ def build_manifest(
     )
 
 
-def save_manifest(manifest: RunManifest, output_dir: Path) -> Path:
+def save_manifest(manifest: RunManifest, output_dir: Path, *, name: str = "msrt-run.json") -> Path:
+    """Persist a manifest to ``output_dir / name``.
+
+    ``name`` exists so batch runs can give each chapter its own
+    manifest file (e.g. ``msrt-run-wistoria-44-it.json``) instead of
+    overwriting the same ``msrt-run.json`` over and over and losing
+    every chapter except the last.
+    """
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / "msrt-run.json"
+    path = output_dir / name
     path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
     return path
+
+
+def manifest_filename_for(chapter: Chapter) -> str:
+    """Deterministic per-chapter manifest filename.
+
+    Used by batch jobs and by ``msrt run`` (single URL) so the
+    library scanner can still tell two chapters apart even when both
+    write into the same ``out_dir``.
+    """
+
+    return f"msrt-run-{_chapter_slug(chapter)}.json"
 
 
 def _series_is_meaningful(series: str) -> bool:
@@ -423,11 +442,21 @@ def run_local(
     input_type: Literal["local", "url"] = "local",
     input_url: str | None = None,
     fetch_metadata: ManifestFetch | None = None,
+    manifest_name: str | None = None,
 ) -> RunManifest:
+    """Translate + package a single chapter.
+
+    ``manifest_name`` overrides the default ``msrt-run.json`` filename
+    so a batch caller can give every chapter its own manifest in the
+    same ``out_dir``. When ``None`` the canonical name is used (back-
+    compat: every existing test and single-chapter caller relies on it).
+    """
+
     factory = engine_factory or _default_engine_factory
     phase = on_phase or _noop_phase
     log = on_log or _noop_phase
     settings = Settings()
+    manifest_file = manifest_name or "msrt-run.json"
 
     phase("collect")
     chapter = collect_local_chapter(
@@ -485,13 +514,13 @@ def run_local(
     except Exception as exc:
         manifest.errors.append(str(exc))
         manifest.finish()
-        save_manifest(manifest, out_dir)
+        save_manifest(manifest, out_dir, name=manifest_file)
         raise
     finally:
         if gpt_config_temp is not None:
             gpt_config_temp.unlink(missing_ok=True)
     manifest.finish()
-    save_manifest(manifest, out_dir)
+    save_manifest(manifest, out_dir, name=manifest_file)
     phase("done")
     return manifest
 
