@@ -199,6 +199,7 @@ export interface LibraryEntry {
   model_alias: string | null;
   provider: string | null;
   strategy: string | null;
+  source_url: string | null;
   errors: string[];
   warnings: string[];
 }

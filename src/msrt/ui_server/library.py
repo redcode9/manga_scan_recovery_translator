@@ -91,6 +91,16 @@ def _load_manifest(path: Path) -> LibraryEntry | None:
     metadata = payload.get("metadata") or {}
     model = payload.get("model") or {}
     fetch = payload.get("fetch") or {}
+    pipeline_input = payload.get("input") or {}
+
+    # ``source_url`` lives in ``fetch.source_url`` for URL pipelines
+    # and in ``input.url`` for the older single-URL shape; we keep
+    # both checks so library grouping works on every manifest era.
+    source_url = None
+    if isinstance(fetch, dict):
+        source_url = fetch.get("source_url")
+    if not source_url and isinstance(pipeline_input, dict):
+        source_url = pipeline_input.get("url")
 
     return LibraryEntry(
         manifest_id=_manifest_id(path),
@@ -105,6 +115,7 @@ def _load_manifest(path: Path) -> LibraryEntry | None:
         model_alias=model.get("alias") if isinstance(model, dict) else None,
         provider=model.get("provider") if isinstance(model, dict) else None,
         strategy=fetch.get("strategy") if isinstance(fetch, dict) else None,
+        source_url=source_url,
         errors=list(payload.get("errors") or []),
         warnings=list(payload.get("warnings") or []),
     )

@@ -9,12 +9,9 @@
 
 import {
   Activity,
-  BookOpenText,
-  FileSearch,
   Gauge,
-  KeyRound,
-  Layers,
   Library,
+  Plus,
   ScrollText,
   Settings,
 } from "lucide-react";
@@ -24,6 +21,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../lib/api";
 import type { Job } from "../lib/api";
+import { LogoMark } from "./Logo";
 import { StatusPill } from "./StatusPill";
 
 interface NavItem {
@@ -32,14 +30,14 @@ interface NavItem {
   icon: ReactNode;
 }
 
+// Five entries — every redundant pair (Setup/Impostazioni,
+// Nuovo Job/Batch) merged. Order = frequency of use.
 const NAV_ITEMS: NavItem[] = [
-  { to: "/", label: "Dashboard", icon: <Gauge size={18} /> },
-  { to: "/new-job", label: "Nuovo Job", icon: <FileSearch size={18} /> },
-  { to: "/batch", label: "Batch", icon: <Layers size={18} /> },
-  { to: "/library", label: "Libreria", icon: <Library size={18} /> },
-  { to: "/setup", label: "Setup", icon: <KeyRound size={18} /> },
+  { to: "/", label: "Libreria", icon: <Gauge size={18} /> },
+  { to: "/add", label: "Aggiungi manga", icon: <Plus size={18} /> },
+  { to: "/library", label: "Tutti i capitoli", icon: <Library size={18} /> },
+  { to: "/logs", label: "Attività", icon: <ScrollText size={18} /> },
   { to: "/settings", label: "Impostazioni", icon: <Settings size={18} /> },
-  { to: "/logs", label: "Log", icon: <ScrollText size={18} /> },
 ];
 
 const ACTIVE_STATUSES = new Set<Job["status"]>(["queued", "running"]);
@@ -64,15 +62,12 @@ export function AppShell() {
         className="w-60 shrink-0 border-r border-white/5 bg-zinc-950/60 backdrop-blur-sm"
         aria-label="Navigazione principale"
       >
-        <div className="flex items-center gap-2 px-5 py-5">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-sky-500/15 ring-1 ring-sky-400/30">
-            <BookOpenText className="text-sky-300" size={20} />
-          </div>
-          <div>
-            <div className="text-base font-semibold tracking-tight">msrt</div>
-            <div className="text-[11px] text-zinc-500">manga translator</div>
-          </div>
-        </div>
+        <Link
+          to="/"
+          className="flex items-center gap-2.5 px-5 py-5 transition hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        >
+          <LogoMark size={36} />
+        </Link>
         <nav className="flex flex-col gap-0.5 px-2" aria-label="Sezioni">
           {NAV_ITEMS.map((item) => (
             <NavLink

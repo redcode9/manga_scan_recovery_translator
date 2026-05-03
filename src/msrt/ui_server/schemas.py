@@ -246,6 +246,11 @@ class LibraryEntry(BaseModel):
     model_alias: str | None = None
     provider: str | None = None
     strategy: str | None = None
+    # ``source_url`` is the URL the chapter was fetched from when known.
+    # The Library UI groups manifests by series and uses any non-null
+    # source_url to compute "X/Y chapters available on the source"
+    # via the coverage endpoint.
+    source_url: str | None = None
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
