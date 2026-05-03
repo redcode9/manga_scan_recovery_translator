@@ -43,7 +43,9 @@ import httpx
 _LOG = logging.getLogger(__name__)
 
 DEFAULT_USER_AGENT = "msrt/0.0 (+local)"
-_RETRYABLE_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
+# Cloudflare-specific 520-524 are intermittent edge errors that
+# routinely flip green on retry; we treat them like 5xx.
+_RETRYABLE_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524})
 _STAGING_DIR_NAME = ".staging"
 # Files matching ``001.png``, ``042.jpg``, etc. — the canonical names
 # emitted by ``download_pages``. Used to clear an output dir before
@@ -213,9 +215,14 @@ async def _download_one(
                 await asyncio.sleep(_backoff_seconds(attempt))
                 continue
 
-            # Non-retryable HTTP error — raise immediately with body snippet.
-            snippet_text = response.text[:200] if response.text else ""
-            raise DownloadError(f"HTTP {response.status_code} su {job.url}: {snippet_text}")
+            # Non-retryable HTTP error — raise with a short summary.
+            # We do NOT include 200 chars of HTML boilerplate (e.g. the
+            # full Cloudflare error page) because that string ends up in
+            # the manifest, the diagnostics bundle and the UI errors
+            # panel; readability matters more than completeness here.
+            raise DownloadError(
+                f"HTTP {response.status_code} su {job.url}: {_summarize_error_body(response)}"
+            )
 
     raise DownloadError(
         f"Download fallito dopo {max_retries + 1} tentativi su {job.url}: {last_error}"
@@ -226,6 +233,21 @@ def _backoff_seconds(attempt: int) -> float:
     """Exponential backoff with a small floor — 1s, 2s, 4s, 8s, …"""
 
     return float(2**attempt)
+
+
+def _summarize_error_body(response: httpx.Response) -> str:
+    """Build a short, log-safe description of a non-retryable HTTP body.
+
+    HTML responses (typical Cloudflare error pages) collapse to
+    ``[HTML <bytes>]``; everything else falls back to the first 160
+    chars of the textual body.
+    """
+
+    content_type = (response.headers.get("content-type") or "").lower()
+    if "html" in content_type:
+        return f"[HTML {len(response.content)}B]"
+    snippet = response.text[:160] if response.text else ""
+    return snippet.strip() or f"[{content_type or 'opaque'} {len(response.content)}B]"
 
 
 def _validated_extension(

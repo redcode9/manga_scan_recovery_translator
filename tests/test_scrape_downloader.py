@@ -254,6 +254,68 @@ def test_download_pages_raises_on_non_retryable_status(tmp_path: Path) -> None:
         _run(download_pages(jobs, output_dir=tmp_path, transport=transport))
 
 
+def test_download_pages_retries_on_cloudflare_520_then_succeeds(tmp_path: Path) -> None:
+    """Regression: the overnight Wistoria run lost ch.8 / ch.15 to a
+    transient HTTP 520 from MangaFire's CDN. Cloudflare 520-524 must
+    be retryable like the other 5xx codes."""
+
+    attempts = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return httpx.Response(520, content=b"<!DOCTYPE html>")
+        return httpx.Response(
+            200,
+            content=_real_image_bytes(fmt="PNG"),
+            headers={"content-type": "image/png"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    jobs = [DownloadJob(index=1, url="https://5w0.example/a.png")]
+
+    from msrt.scrape import downloader as dl_mod
+
+    real_sleep = asyncio.sleep
+
+    async def instant_sleep(seconds: float) -> None:
+        await real_sleep(0)
+
+    original = dl_mod.asyncio.sleep
+    dl_mod.asyncio.sleep = instant_sleep  # type: ignore[assignment]
+    try:
+        files = _run(download_pages(jobs, output_dir=tmp_path, transport=transport))
+    finally:
+        dl_mod.asyncio.sleep = original  # type: ignore[assignment]
+
+    assert attempts["count"] == 2
+    assert len(files) == 1
+
+
+def test_download_pages_summarises_html_error_body(tmp_path: Path) -> None:
+    """Non-retryable HTML responses (e.g. a hard 404 returning the
+    site's full error page) must NOT leak the HTML into the error
+    message — that string ends up in manifests, diagnostics and UI."""
+
+    big_html = (
+        "<!DOCTYPE html><html><head><title>blocked</title></head>"
+        "<body>" + ("padding " * 50) + "</body></html>"
+    ).encode("utf-8")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, content=big_html, headers={"content-type": "text/html"})
+
+    transport = httpx.MockTransport(handler)
+    jobs = [DownloadJob(index=1, url="https://example.com/a.png")]
+
+    with pytest.raises(DownloadError) as info:
+        _run(download_pages(jobs, output_dir=tmp_path, transport=transport))
+    msg = str(info.value)
+    assert "HTTP 403" in msg
+    assert "[HTML " in msg  # summarised
+    assert "<!DOCTYPE html>" not in msg  # not leaked verbatim
+
+
 def test_download_pages_keeps_results_in_index_order(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

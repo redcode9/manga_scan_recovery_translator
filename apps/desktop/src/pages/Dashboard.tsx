@@ -7,9 +7,6 @@
  *   GET /api/doctor     checklist strutturata
  *   GET /api/server     stato LiteLLM
  *   GET /api/settings   provider, model, MITR path, has_*_key
- *
- * Tutto via TanStack Query con cache breve (10 sec) per evitare di
- * martellare il backend ad ogni focus tab.
  */
 
 import { CheckCircle2, ChevronRight, CircleAlert, CircleX } from "lucide-react";
@@ -37,7 +34,7 @@ export function Dashboard() {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-zinc-500">
           msrt {health.data?.version ?? "…"} — backend pronto su 127.0.0.1.
         </p>
       </header>
@@ -64,14 +61,8 @@ function DoctorCard({
   loading: boolean;
 }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Diagnostica ambiente
-        </h2>
-        {loading && <span className="text-xs text-slate-400">caricamento…</span>}
-      </div>
-      <ul className="divide-y divide-slate-100">
+    <Card title="Diagnostica ambiente" loading={loading}>
+      <ul className="divide-y divide-white/5">
         {checks.map((check) => (
           <li
             key={check.name}
@@ -80,10 +71,10 @@ function DoctorCard({
             <div className="flex items-start gap-2.5">
               <DoctorIcon status={check.status} />
               <div>
-                <div className="text-sm font-medium text-slate-900">
+                <div className="text-sm font-medium text-zinc-100">
                   {check.name}
                 </div>
-                <div className="text-xs text-slate-500">{check.message}</div>
+                <div className="text-xs text-zinc-500">{check.message}</div>
               </div>
             </div>
             <StatusPill tone={toneForStatus(check.status)}>
@@ -92,12 +83,10 @@ function DoctorCard({
           </li>
         ))}
         {!loading && checks.length === 0 && (
-          <li className="py-3 text-sm text-slate-500">
-            Nessun check disponibile.
-          </li>
+          <li className="py-3 text-sm text-zinc-500">Nessun check disponibile.</li>
         )}
       </ul>
-    </section>
+    </Card>
   );
 }
 
@@ -124,15 +113,11 @@ function ServerCard({
   const busy = upMutation.isPending || downMutation.isPending || loading;
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          LiteLLM
-        </h2>
+    <Card
+      title="LiteLLM"
+      headerExtra={
         <StatusPill
-          tone={
-            server?.healthy ? "ok" : server?.running ? "warn" : "fail"
-          }
+          tone={server?.healthy ? "ok" : server?.running ? "warn" : "fail"}
         >
           {server?.healthy
             ? "running & healthy"
@@ -140,7 +125,8 @@ function ServerCard({
               ? "running, unhealthy"
               : "stopped"}
         </StatusPill>
-      </div>
+      }
+    >
       <dl className="space-y-1 text-sm">
         <Row label="PID" value={server?.pid ? String(server.pid) : "—"} />
         <Row label="Model attivo" value={provider} />
@@ -152,7 +138,7 @@ function ServerCard({
           type="button"
           onClick={() => upMutation.mutate()}
           disabled={busy}
-          className="inline-flex items-center rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center rounded-md bg-emerald-500/90 px-3 py-1.5 text-sm font-medium text-zinc-950 shadow-sm transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Avvia
         </button>
@@ -160,17 +146,17 @@ function ServerCard({
           type="button"
           onClick={() => downMutation.mutate()}
           disabled={busy}
-          className="inline-flex items-center rounded-md bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium text-zinc-200 transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Ferma
         </button>
       </div>
       {(upMutation.error || downMutation.error) && (
-        <p className="mt-3 text-xs text-rose-600">
+        <p className="mt-3 text-xs text-rose-300">
           {(upMutation.error ?? downMutation.error)?.message}
         </p>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -193,42 +179,65 @@ function QuickActions() {
     },
   ];
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        Azioni rapide
-      </h2>
+    <Card title="Azioni rapide">
       <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
         {items.map((item) => (
           <Link
             key={item.to}
             to={item.to}
-            className="group flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:bg-white"
+            className="group flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-4 py-3 text-left transition hover:bg-white/10 hover:ring-1 hover:ring-sky-400/30"
           >
             <div>
-              <div className="text-sm font-medium text-slate-900">
-                {item.title}
-              </div>
-              <div className="text-xs text-slate-500">{item.description}</div>
+              <div className="text-sm font-medium text-zinc-100">{item.title}</div>
+              <div className="text-xs text-zinc-500">{item.description}</div>
             </div>
             <ChevronRight
               size={18}
-              className="text-slate-400 transition group-hover:text-slate-600"
+              className="text-zinc-500 transition group-hover:text-sky-300"
             />
           </Link>
         ))}
       </div>
+    </Card>
+  );
+}
+
+function Card({
+  title,
+  loading,
+  headerExtra,
+  children,
+}: {
+  title: string;
+  loading?: boolean;
+  headerExtra?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-white/5 bg-zinc-900/60 p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
+          {title}
+        </h2>
+        {loading ? (
+          <span className="text-xs text-zinc-500">caricamento…</span>
+        ) : (
+          headerExtra
+        )}
+      </div>
+      {children}
     </section>
   );
 }
 
 function DoctorIcon({ status }: { status: string }) {
   if (status === "ok")
-    return <CheckCircle2 size={16} className="mt-0.5 text-emerald-600" />;
+    return <CheckCircle2 size={16} className="mt-0.5 text-emerald-400" />;
   if (status === "warn")
-    return <CircleAlert size={16} className="mt-0.5 text-amber-600" />;
+    return <CircleAlert size={16} className="mt-0.5 text-amber-300" />;
   if (status === "fail")
-    return <CircleX size={16} className="mt-0.5 text-rose-600" />;
-  return <CheckCircle2 size={16} className="mt-0.5 text-slate-400" />;
+    return <CircleX size={16} className="mt-0.5 text-rose-400" />;
+  return <CheckCircle2 size={16} className="mt-0.5 text-zinc-500" />;
 }
 
 function toneForStatus(
@@ -252,9 +261,9 @@ function Row({
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
+      <dt className="text-xs uppercase tracking-wide text-zinc-500">{label}</dt>
       <dd
-        className={`truncate text-sm text-slate-900 ${mono ? "font-mono" : ""}`}
+        className={`truncate text-sm text-zinc-200 ${mono ? "font-mono" : ""}`}
         title={value}
       >
         {value}

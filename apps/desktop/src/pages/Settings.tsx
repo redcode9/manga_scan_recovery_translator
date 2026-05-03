@@ -31,22 +31,22 @@ export function SettingsPage() {
       <header className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Impostazioni</h1>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-zinc-500">
             Stato runtime, provider, MITR, LiteLLM e cache locale.
           </p>
         </div>
         <Link
           to="/setup"
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-zinc-100 text-zinc-950 px-4 py-2 text-sm font-medium transition hover:bg-zinc-200"
         >
           Apri Setup
           <ArrowRight size={16} />
         </Link>
       </header>
 
-      {settings.isLoading && <p className="text-sm text-slate-500">Caricamento…</p>}
+      {settings.isLoading && <p className="text-sm text-zinc-500">Caricamento…</p>}
       {settings.error && (
-        <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+        <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">
           {settings.error.message}
         </div>
       )}
@@ -124,14 +124,14 @@ function DiagnosticsCard() {
   });
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        <span className="text-slate-400">
+    <section className="rounded-lg border border-white/5 bg-zinc-900/60 p-5 shadow-sm">
+      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        <span className="text-zinc-500">
           <LifeBuoy size={18} />
         </span>
         Diagnostica
       </h2>
-      <p className="mb-3 text-xs text-slate-500">
+      <p className="mb-3 text-xs text-zinc-500">
         Snapshot redatto: chiavi solo come flag presente/assente, doctor
         report e ultimi 20 job. Da allegare alle issue.
       </p>
@@ -139,13 +139,13 @@ function DiagnosticsCard() {
         type="button"
         onClick={() => mutation.mutate()}
         disabled={mutation.isPending}
-        className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-zinc-100 text-zinc-950 px-3 py-1.5 text-sm font-medium transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Download size={14} />
         {mutation.isPending ? "Genero…" : "Scarica diagnostica"}
       </button>
       {error && (
-        <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+        <p className="mt-3 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
           {error}
         </p>
       )}
@@ -163,9 +163,9 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        <span className="text-slate-400">{icon}</span>
+    <section className="rounded-lg border border-white/5 bg-zinc-900/60 p-5 shadow-sm">
+      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        <span className="text-zinc-500">{icon}</span>
         {title}
       </h2>
       <dl className="space-y-2">{children}</dl>
@@ -182,7 +182,7 @@ function KeyValue({
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
+      <dt className="text-xs uppercase tracking-wide text-zinc-500">{label}</dt>
       <dd className="truncate text-right">{children}</dd>
     </div>
   );

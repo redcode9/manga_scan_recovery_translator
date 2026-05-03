@@ -275,6 +275,49 @@ class _SkipExistingScraper(ChapterScraper):
         raise AssertionError("skip_existing should avoid fetching an already packaged chapter")
 
 
+def test_coverage_endpoint_classifies_missing_before_and_after_range(
+    isolated_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The coverage view powers the BatchPlanner gap UX. Given a fake
+    adapter exposing chapters [1, 50, 51, 52] and an output dir that
+    already contains ``fake-1-it.pdf``, with ``range_filter=51-52``:
+
+    - ``missing_before_range`` = ["50"]  (50 is < range, not on disk)
+    - ``missing_after_range``  = []      (no chapters after 52)
+    - ``on_disk_count``        = 1       (chapter 1 already on disk)
+    """
+
+    fake = _MultiChapterScraper()
+    monkeypatch.setattr("msrt.ui_server.app.scraper_for_url", lambda _u, site="auto": fake)
+    monkeypatch.setattr("msrt.ui_server.commands.scraper_for_url", lambda _u, site="auto": fake)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "fake-1-it.pdf").write_bytes(b"%PDF-1.4\n")
+
+    with _client(isolated_settings) as client:
+        response = client.post(
+            "/api/chapters/coverage",
+            json={
+                "url": "https://fake-test.example/series/foo",
+                "out_dir": str(out),
+                "range_filter": "51-52",
+                "fmt": "pdf",
+                "lang_target": "it",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["available_count"] == 4
+    assert payload["on_disk_count"] == 1
+    before_numbers = [row["chapter_number"] for row in payload["missing_before_range"]]
+    after_numbers = [row["chapter_number"] for row in payload["missing_after_range"]]
+    assert before_numbers == ["50"]
+    assert after_numbers == []
+
+
 def test_dry_run_returns_filtered_chapters(
     isolated_settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:

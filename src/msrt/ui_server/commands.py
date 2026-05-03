@@ -107,11 +107,50 @@ def _invoke_run_local(
 ) -> RunManifest:
     """Synchronous wrapper that converts pipeline callbacks into SSE
     events. Runs in a worker thread (``asyncio.to_thread``) because
-    ``run_local`` itself is sync and cannot live on the event loop."""
+    ``run_local`` itself is sync and cannot live on the event loop.
+
+    Spawns a background watcher thread that emits per-page progress
+    events while MITR is rendering, so the UI's per-chapter bar moves
+    instead of going silent for 30 minutes. The watcher polls the
+    ``translated-pages/`` directory; one file = one page rendered.
+    """
+
+    import threading
+
+    expected_pages = sum(
+        1 for _ in input_dir.glob("*") if _.is_file() and _.suffix.lower() in _IMAGE_SUFFIXES
+    )
 
     def schedule_emit(event: Event) -> None:
         # Cross-thread emit: bounce back to the loop where the broker lives.
         asyncio.run_coroutine_threadsafe(ctx.emit(event), loop)
+
+    watcher_stop = threading.Event()
+    translated_dir = out_dir / "translated-pages"
+
+    def watch_translated_pages() -> None:
+        last_count = -1
+        while not watcher_stop.wait(2.0):
+            try:
+                count = sum(
+                    1
+                    for entry in translated_dir.iterdir()
+                    if entry.is_file() and entry.suffix.lower() in _IMAGE_SUFFIXES
+                )
+            except FileNotFoundError:
+                continue
+            if count != last_count:
+                last_count = count
+                schedule_emit(
+                    Event(
+                        type="progress",
+                        job_id=ctx.job.id,
+                        chapter=chapter_number,
+                        current=count,
+                        total=max(expected_pages, count),
+                        unit="pages",
+                    )
+                )
 
     def on_phase(phase: str) -> None:
         if ctx.cancel_requested:
@@ -127,6 +166,13 @@ def _invoke_run_local(
                 chapter=chapter_number,
             )
         )
+        # Phase transitions gate the watcher: only watch during translate
+        # / postprocess, stop at package / done so we don't double-count
+        # files left behind by the previous chapter.
+        if phase == "translate" and not watcher_thread.is_alive():
+            watcher_thread.start()
+        elif phase in {"package", "done"}:
+            watcher_stop.set()
 
     def on_log(message: str) -> None:
         if ctx.cancel_requested:
@@ -142,23 +188,35 @@ def _invoke_run_local(
             )
         )
 
-    return run_local(
-        input_dir,
-        out_dir,
-        series=series,
-        chapter_number=chapter_number,
-        chapter_title=chapter_title,
-        lang_source=options.lang_source,
-        lang_target=options.lang_target,
-        fmt=options.format,
-        job=job,
-        on_phase=on_phase,
-        on_log=on_log,
-        input_type=input_type,  # type: ignore[arg-type]
-        input_url=input_url,
-        fetch_metadata=fetch_metadata,
-        manifest_name=manifest_name,
+    watcher_thread = threading.Thread(
+        target=watch_translated_pages, name="msrt-page-watcher", daemon=True
     )
+
+    try:
+        return run_local(
+            input_dir,
+            out_dir,
+            series=series,
+            chapter_number=chapter_number,
+            chapter_title=chapter_title,
+            lang_source=options.lang_source,
+            lang_target=options.lang_target,
+            fmt=options.format,
+            job=job,
+            on_phase=on_phase,
+            on_log=on_log,
+            input_type=input_type,  # type: ignore[arg-type]
+            input_url=input_url,
+            fetch_metadata=fetch_metadata,
+            manifest_name=manifest_name,
+        )
+    finally:
+        watcher_stop.set()
+        if watcher_thread.is_alive():
+            watcher_thread.join(timeout=2.0)
+
+
+_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp"})
 
 
 # ----------------------------------------------------------------------------
@@ -273,7 +331,12 @@ async def _run_url_batch_job(ctx: JobContext, url: str) -> None:
             ctx.save()
             continue
         try:
-            await _run_url_single_chapter(ctx, scraper.name, chapter.url, batch=True)
+            await _run_chapter_with_retry(
+                ctx,
+                scraper.name,
+                chapter.url,
+                chapter_number=chapter.chapter_number,
+            )
             ctx.job.chapters_done += 1
         except Exception as exc:
             ctx.job.chapters_failed += 1
@@ -289,6 +352,76 @@ async def _run_url_batch_job(ctx: JobContext, url: str) -> None:
             if not options.continue_on_error:
                 raise
         ctx.save()
+
+
+async def _run_chapter_with_retry(
+    ctx: JobContext,
+    site_name: str,
+    url: str,
+    *,
+    chapter_number: str,
+    max_attempts: int = 3,
+) -> None:
+    """Run one chapter as part of a batch, retrying transient failures.
+
+    A transient failure is anything that raises ``FetchError`` /
+    ``DownloadError`` whose message looks like a network/CDN/race
+    condition we've seen flip green on retry (Cloudflare 5xx,
+    ``Network.getResponseBody`` race, generic timeouts). Per the
+    failure pattern of the overnight Wistoria run, just two extra
+    attempts with exponential backoff would have rescued chapters 8
+    and 15 (CDN 520) and very likely 1 / 8.1 (race) too.
+    """
+
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        if ctx.cancel_requested:
+            raise asyncio.CancelledError("Batch cancelled by user")
+        try:
+            await _run_url_single_chapter(ctx, site_name, url, batch=True)
+            return
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= max_attempts or not _is_retryable_chapter_error(exc):
+                raise
+            backoff = min(60.0, 5.0 * (2 ** (attempt - 1)))
+            await ctx.emit(
+                Event(
+                    type="warning",
+                    job_id=ctx.job.id,
+                    chapter=chapter_number,
+                    level="warn",
+                    message=(
+                        f"ch.{chapter_number} retry {attempt}/{max_attempts - 1} "
+                        f"dopo {backoff:.0f}s: {exc}"
+                    ),
+                )
+            )
+            await asyncio.sleep(backoff)
+    if last_exc is not None:
+        raise last_exc
+
+
+_RETRYABLE_HINTS = (
+    "Network.getResponseBody",
+    "No resource with given identifier",
+    "HTTP 408",
+    "HTTP 425",
+    "HTTP 429",
+    "HTTP 5",  # 500-504 + 520-524
+    "timeout",
+    "Timeout",
+    "Reader-network",
+)
+
+
+def _is_retryable_chapter_error(exc: Exception) -> bool:
+    """Heuristic: retry on signs of network / browser race, never on
+    parsing or 4xx-style client errors. Conservative by design — we'd
+    rather skip a retry than burn an MITR pass on a 404."""
+
+    msg = str(exc)
+    return any(hint in msg for hint in _RETRYABLE_HINTS)
 
 
 async def _run_url_single_chapter(

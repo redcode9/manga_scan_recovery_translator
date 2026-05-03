@@ -91,16 +91,16 @@ export function SetupWizardPage() {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Setup</h1>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-zinc-500">
           Configura le chiavi API e il modello di default. Le chiavi
           vengono salvate nel portachiavi di sistema quando disponibile,
           altrimenti nel file <code>.env</code>.
         </p>
       </header>
 
-      {settings.isLoading && <p className="text-sm text-slate-500">Caricamento…</p>}
+      {settings.isLoading && <p className="text-sm text-zinc-500">Caricamento…</p>}
       {settings.error && (
-        <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+        <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">
           {settings.error.message}
         </div>
       )}
@@ -177,12 +177,12 @@ function ProviderKeyCard({
   const busy = save.isPending || remove.isPending || smoke.isPending;
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="rounded-lg border border-white/5 bg-zinc-900/60 p-4 shadow-sm">
       <header className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-slate-900">{provider.label}</h2>
-          <p className="font-mono text-xs text-slate-500">{provider.keyName}</p>
-          <p className="mt-1 text-[11px] text-slate-400">{provider.hint}</p>
+          <h2 className="text-sm font-semibold text-zinc-100">{provider.label}</h2>
+          <p className="font-mono text-xs text-zinc-500">{provider.keyName}</p>
+          <p className="mt-1 text-[11px] text-zinc-500">{provider.hint}</p>
         </div>
         <StatusPill tone={present ? "ok" : "muted"}>
           {present ? "presente" : "assente"}
@@ -191,7 +191,7 @@ function ProviderKeyCard({
 
       <form onSubmit={onSubmit} className="space-y-3">
         <label>
-          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
             Nuova API key
           </span>
           <input
@@ -201,9 +201,9 @@ function ProviderKeyCard({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={provider.placeholder}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+            className="w-full rounded-md border border-white/10 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
           />
-          <p className="mt-1 text-[11px] text-slate-400">
+          <p className="mt-1 text-[11px] text-zinc-500">
             Dove la trovo:{" "}
             <a
               href={provider.helpUrl}
@@ -229,7 +229,7 @@ function ProviderKeyCard({
             type="button"
             disabled={busy || !present}
             onClick={onRemove}
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-white/5 px-3 py-1.5 text-sm font-medium text-zinc-300 shadow-sm transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Trash2 size={14} />
             Rimuovi
@@ -297,13 +297,13 @@ function DefaultModelCard({
   }, [settings.default_model]);
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="rounded-lg border border-white/5 bg-zinc-900/60 p-5 shadow-sm">
       <header className="mb-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          <ShieldCheck size={16} className="text-slate-400" />
+        <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          <ShieldCheck size={16} className="text-zinc-500" />
           Modello di default
         </h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-zinc-500">
           Usato quando non passi <code>--model</code>. Persistito in
           <code> MSRT_MODEL</code> nel file <code>.env</code>.
         </p>
@@ -311,13 +311,13 @@ function DefaultModelCard({
 
       <div className="flex flex-col gap-3 md:flex-row md:items-end">
         <label className="flex-1">
-          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
             Alias modello
           </span>
           <select
             value={selected}
             onChange={(e) => setSelected(e.target.value)}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+            className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
           >
             {options.map((option) => (
               <option key={option.value} value={option.value}>
@@ -330,7 +330,7 @@ function DefaultModelCard({
           type="button"
           disabled={!dirty || mutation.isPending}
           onClick={() => mutation.mutate()}
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-zinc-100 text-zinc-950 px-4 py-2 text-sm font-medium transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <CheckCircle2 size={16} />
           Salva default
@@ -362,9 +362,9 @@ function Feedback({
   children: React.ReactNode;
 }) {
   const palette = {
-    ok: "border-emerald-200 bg-emerald-50 text-emerald-800",
-    warn: "border-amber-200 bg-amber-50 text-amber-800",
-    fail: "border-rose-200 bg-rose-50 text-rose-700",
+    ok: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+    warn: "border-amber-500/30 bg-amber-500/10 text-amber-200",
+    fail: "border-rose-500/30 bg-rose-500/10 text-rose-300",
   } as const;
   return (
     <p className={`mt-3 rounded-md border px-3 py-2 text-xs ${palette[tone]}`}>

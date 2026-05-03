@@ -10,7 +10,6 @@ or Cloudflare checks.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from dataclasses import dataclass, field
@@ -245,6 +244,18 @@ class MangaFireReaderResolver:
         exclude_path_fragment: str | None = None,
         error_message: str,
     ) -> str:
+        """Wait for the first matching reader response and return its body.
+
+        We use ``page.expect_response`` instead of the (older) racy
+        ``page.on("response", ...)`` pattern: ``expect_response`` keeps
+        the response resource alive on the Chromium side until we've
+        actually read the body, so we no longer hit
+        *"Network.getResponseBody: No resource with given identifier
+        found"* when MangaFire navigates from a "shell" chapter
+        (e.g. ``chapter-1``) to its sub-chapter (``chapter-1.1``)
+        before our handler had a chance to read the body.
+        """
+
         try:
             from playwright.async_api import TimeoutError as PlaywrightTimeoutError
             from playwright.async_api import async_playwright
@@ -254,6 +265,15 @@ class MangaFireReaderResolver:
                 "e `uv run playwright install chromium` per usare MangaFire."
             ) from exc
 
+        timeout_ms = _READER_RESPONSE_TIMEOUT_MS
+
+        def predicate(response: Any) -> bool:
+            if response.status != 200:
+                return False
+            if response_path_fragment not in response.url:
+                return False
+            return not (exclude_path_fragment and exclude_path_fragment in response.url)
+
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=self._headless)
             context = await browser.new_context(
@@ -261,34 +281,16 @@ class MangaFireReaderResolver:
                 user_agent=_MANGAFIRE_BROWSER_UA,
             )
             page = await context.new_page()
-            loop = asyncio.get_running_loop()
-            payload: asyncio.Future[str] = loop.create_future()
-
-            async def capture_reader_response(response: Any) -> None:
-                if payload.done() or response.status != 200:
-                    return
-                if response_path_fragment not in response.url:
-                    return
-                if exclude_path_fragment and exclude_path_fragment in response.url:
-                    return
-                try:
-                    payload.set_result(await response.text())
-                except Exception as exc:  # pragma: no cover - browser race
-                    payload.set_exception(
-                        FetchError(f"MangaFire reader response non leggibile: {exc}")
-                    )
-
-            page.on(
-                "response",
-                lambda response: asyncio.create_task(capture_reader_response(response)),
-            )
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-                return await asyncio.wait_for(payload, timeout=_READER_RESPONSE_TIMEOUT_MS / 1000)
-            except (TimeoutError, PlaywrightTimeoutError) as exc:
-                raise FetchError(
-                    f"{error_message} entro {_READER_RESPONSE_TIMEOUT_MS // 1000}s."
-                ) from exc
+                async with page.expect_response(predicate, timeout=timeout_ms) as info:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+                response = await info.value
+                try:
+                    return await response.text()
+                except Exception as exc:  # pragma: no cover - browser race
+                    raise FetchError(f"MangaFire reader response non leggibile: {exc}") from exc
+            except PlaywrightTimeoutError as exc:
+                raise FetchError(f"{error_message} entro {timeout_ms // 1000}s.") from exc
             finally:
                 await context.close()
                 await browser.close()

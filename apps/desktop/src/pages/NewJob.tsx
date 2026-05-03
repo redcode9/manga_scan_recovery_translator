@@ -103,7 +103,7 @@ export function NewJobPage() {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Nuovo Job</h1>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-zinc-500">
           Cartella locale, URL singolo capitolo o batch su tutti i capitoli
           di una serie.
         </p>
@@ -111,7 +111,7 @@ export function NewJobPage() {
 
       <form
         onSubmit={onSubmit}
-        className="space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+        className="space-y-6 rounded-xl border border-white/5 bg-zinc-900/60 p-6 shadow-sm"
       >
         <ModeSwitch mode={form.mode} onChange={(mode) => update("mode", mode)} />
 
@@ -123,7 +123,7 @@ export function NewJobPage() {
             <input
               value={form.inputDir}
               onChange={(e) => update("inputDir", e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+              className="w-full rounded-md border border-white/10 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
               placeholder="/Users/me/Desktop/Wistoria/Capitolo_50"
             />
           </Field>
@@ -135,7 +135,7 @@ export function NewJobPage() {
             <input
               value={form.inputUrl}
               onChange={(e) => update("inputUrl", e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+              className="w-full rounded-md border border-white/10 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
               placeholder="https://mangadex.org/chapter/<UUID>"
             />
           </Field>
@@ -146,7 +146,7 @@ export function NewJobPage() {
             <input
               value={form.outDir}
               onChange={(e) => update("outDir", e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+              className="w-full rounded-md border border-white/10 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
             />
           </Field>
           <Field label="Formato">
@@ -155,7 +155,7 @@ export function NewJobPage() {
               onChange={(e) =>
                 update("format", e.target.value as FormState["format"])
               }
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+              className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
             >
               <option value="pdf">PDF</option>
               <option value="cbz">CBZ</option>
@@ -168,7 +168,7 @@ export function NewJobPage() {
               onChange={(e) =>
                 update("renderer", e.target.value as FormState["renderer"])
               }
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+              className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
             >
               <option value="custom-postprocess">
                 custom-postprocess (default)
@@ -185,7 +185,7 @@ export function NewJobPage() {
               <input
                 value={form.series}
                 onChange={(e) => update("series", e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+                className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
                 placeholder="Wistoria"
               />
             </Field>
@@ -193,7 +193,7 @@ export function NewJobPage() {
               <input
                 value={form.chapter}
                 onChange={(e) => update("chapter", e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+                className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
                 placeholder="50"
               />
             </Field>
@@ -201,7 +201,7 @@ export function NewJobPage() {
               <input
                 value={form.title}
                 onChange={(e) => update("title", e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+                className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
               />
             </Field>
           </div>
@@ -209,8 +209,8 @@ export function NewJobPage() {
 
         {form.mode === "url_batch" && <BatchSelectors form={form} update={update} />}
 
-        <details className="rounded-lg border border-slate-200 p-4 [&_summary]:cursor-pointer">
-          <summary className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+        <details className="rounded-lg border border-white/5 p-4 [&_summary]:cursor-pointer">
+          <summary className="flex items-center gap-1.5 text-sm font-medium text-zinc-300">
             <ChevronDown size={14} className="transition-transform [details[open]_&]:rotate-180" />
             Opzioni avanzate
           </summary>
@@ -219,7 +219,7 @@ export function NewJobPage() {
               <input
                 value={form.model}
                 onChange={(e) => update("model", e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+                className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
                 placeholder="gpt | sonnet | gemini-pro …"
               />
             </Field>
@@ -227,28 +227,28 @@ export function NewJobPage() {
               <input
                 value={form.site}
                 onChange={(e) => update("site", e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+                className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
               />
             </Field>
             <Field label="Glossary path">
               <input
                 value={form.glossaryPath}
                 onChange={(e) => update("glossaryPath", e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+                className="w-full rounded-md border border-white/10 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
               />
             </Field>
             <Field label="Pre-dict path">
               <input
                 value={form.preDictPath}
                 onChange={(e) => update("preDictPath", e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+                className="w-full rounded-md border border-white/10 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
               />
             </Field>
             <Field label="Font path">
               <input
                 value={form.fontPath}
                 onChange={(e) => update("fontPath", e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+                className="w-full rounded-md border border-white/10 px-3 py-2 font-mono text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
               />
             </Field>
             <div className="flex flex-col justify-end gap-2 text-sm">
@@ -267,7 +267,7 @@ export function NewJobPage() {
         </details>
 
         {requiresRights && (
-          <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
+          <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-500/10 p-4">
             <ShieldAlert className="mt-0.5 text-amber-600" size={18} />
             <div className="flex-1 space-y-2">
               <p className="text-sm text-amber-900">
@@ -285,13 +285,13 @@ export function NewJobPage() {
         )}
 
         {submit.error && (
-          <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+          <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">
             {submit.error.message}
           </div>
         )}
 
-        <div className="flex items-center justify-between border-t border-slate-100 pt-4">
-          <p className="text-xs text-slate-500">
+        <div className="flex items-center justify-between border-t border-white/5 pt-4">
+          <p className="text-xs text-zinc-500">
             Il job viene messo in coda nel worker FIFO del backend.
           </p>
           <button
@@ -329,7 +329,7 @@ function ModeSwitch({
           className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium ring-1 transition ${
             mode === opt.value
               ? "bg-sky-600 text-white ring-sky-600"
-              : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+              : "bg-white text-zinc-300 ring-white/10 hover:bg-white/5"
           }`}
         >
           {opt.icon}
@@ -353,14 +353,14 @@ function BatchSelectors({
         <input
           value={form.rangeFilter}
           onChange={(e) => update("rangeFilter", e.target.value)}
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+          className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
         />
       </Field>
       <Field label="Capitoli espliciti" hint="Es. 50,51,51.1">
         <input
           value={form.chaptersFilter}
           onChange={(e) => update("chaptersFilter", e.target.value)}
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+          className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
         />
       </Field>
       <Field label="Limit" hint="Primi N capitoli, dopo i filtri.">
@@ -368,7 +368,7 @@ function BatchSelectors({
           inputMode="numeric"
           value={form.limit}
           onChange={(e) => update("limit", e.target.value)}
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+          className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
         />
       </Field>
     </div>
@@ -386,11 +386,11 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
         {label}
       </span>
       {children}
-      {hint && <span className="mt-1 block text-[11px] text-slate-400">{hint}</span>}
+      {hint && <span className="mt-1 block text-[11px] text-zinc-500">{hint}</span>}
     </label>
   );
 }
@@ -405,12 +405,12 @@ function Toggle({
   label: string;
 }) {
   return (
-    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+    <label className="inline-flex items-center gap-2 text-sm text-zinc-300">
       <input
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-400"
+        className="h-4 w-4 rounded border-white/10 text-sky-600 focus:ring-sky-400"
       />
       {label}
     </label>

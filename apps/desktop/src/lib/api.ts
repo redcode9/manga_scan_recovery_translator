@@ -159,6 +159,33 @@ export interface DryRunResponse {
   chapters: DryRunChapter[];
 }
 
+export interface CoverageChapter {
+  chapter_number: string;
+  url: string;
+  title: string | null;
+  series: string | null;
+  on_disk: boolean;
+  in_range: boolean;
+}
+
+export interface CoverageRequest {
+  url: string;
+  site?: string;
+  out_dir?: string;
+  range_filter?: string | null;
+  fmt?: "pdf" | "cbz" | "both";
+  lang_target?: string;
+}
+
+export interface CoverageResponse {
+  site: string;
+  available: CoverageChapter[];
+  available_count: number;
+  on_disk_count: number;
+  missing_before_range: CoverageChapter[];
+  missing_after_range: CoverageChapter[];
+}
+
 export interface LibraryEntry {
   manifest_id: string;
   manifest_path: string;
@@ -265,6 +292,11 @@ export const api = {
 
   dryRun: (body: DryRunRequest) =>
     request<DryRunResponse>("/api/chapters/dry-run", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  coverage: (body: CoverageRequest) =>
+    request<CoverageResponse>("/api/chapters/coverage", {
       method: "POST",
       body: JSON.stringify(body),
     }),

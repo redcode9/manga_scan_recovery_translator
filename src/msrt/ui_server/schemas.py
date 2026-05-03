@@ -185,6 +185,52 @@ class DryRunResponse(BaseModel):
     chapters: list[DryRunChapter]
 
 
+class CoverageChapter(BaseModel):
+    """One row in the coverage view: ``{number, url, on_disk, in_range}``.
+
+    ``on_disk`` is ``True`` when an output PDF/CBZ matching the
+    ``slug-number-lang`` pattern is present in ``out_dir``. ``in_range``
+    reflects whether the chapter falls inside the user's currently
+    requested ``range_filter`` (or ``True`` if no range is set).
+    """
+
+    chapter_number: str
+    url: str
+    title: str | None = None
+    series: str | None = None
+    on_disk: bool
+    in_range: bool
+
+
+class CoverageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str
+    site: str = "auto"
+    out_dir: Path = Path("out")
+    range_filter: str | None = None
+    fmt: Literal["pdf", "cbz", "both"] = "pdf"
+    lang_target: str = "it"
+
+
+class CoverageResponse(BaseModel):
+    """Full picture of "what's published vs what we have on disk".
+
+    ``available`` = chapters the source exposes (post-list_chapters).
+    ``on_disk_count`` / ``available_count`` give the manga-level
+    progress percentage. ``missing_before_range`` is the list the UI
+    uses to ask "want to fill the gap?" when the user submits a batch
+    that starts above 0.
+    """
+
+    site: str
+    available: list[CoverageChapter]
+    available_count: int
+    on_disk_count: int
+    missing_before_range: list[CoverageChapter]
+    missing_after_range: list[CoverageChapter]
+
+
 class LibraryEntry(BaseModel):
     """One row of the local library, sourced from a ``msrt-run.json``."""
 

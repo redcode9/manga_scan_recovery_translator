@@ -1015,6 +1015,64 @@ Polish funzionale dopo che il setup è cablato. Due capability ad alta utilità 
 
 Quality gate post-v0.4e: ruff/format clean, mypy strict clean, **229 test backend passano**, `npm run build` clean.
 
+### v0.5 — Resilience & UX overhaul (in corso, 2026-05-03)
+
+Trigger: overnight run di Wistoria (URL `…/chapter-0`, `--all-chapters`,
+range 0-63 sul reader). Il job ha prodotto 33 PDF su 70 capitoli ed è
+stato cancellato manualmente al chapter 33 (job id `d211deae1e2f`).
+**Failure root cause** dei 4 errori registrati:
+
+| Capitolo | Tipo | Causa |
+|---|---|---|
+| 1, 8.1 | race | `Network.getResponseBody: No resource with given identifier found`. `page.on("response", lambda r: asyncio.create_task(handle(r)))` legge il body in async dopo che la pagina è già navigata al sub-capitolo (1 → 1.1, 8 → 8.1). Chromium ha già scartato la risorsa. |
+| 8, 15 | CDN 520 | Il reader-network ha esposto gli URL immagine, ma il download da `5w0.mfcdn2.xyz` ha risposto HTTP 520 con body Cloudflare. `_RETRYABLE_STATUSES` in `downloader.py:46` non include 520-524, quindi la prima 520 fa esplodere il capitolo senza retry. |
+
+Il fallback browser-capture è fallito su tutti e 4 perché (a) le pagine
+"shell" (chapter-1) non hanno scan in DOM al `domcontentloaded` o (b)
+il rendering interno carica gli stessi URL CDN bloccati.
+
+**Pain UX dichiarato**: il job è apparso "stuck al chapter 32" mentre in
+realtà MITR stava macinando il chapter 33 (~30 min/capitolo per 45
+pagine). La fase `translate` non emette progress per-pagina. Inoltre
+la lista capitoli skipped non è visibile in nessuna vista UI; per
+risalire ai 4 fallimenti l'utente ha dovuto leggere il JSON del job a
+mano.
+
+**Tier A — Resilience scraping** (must-have prima del prossimo overnight):
+- [ ] A.1 — `mangafire.py:_first_reader_payload` riscritto con `page.expect_response(predicate)`. Il context manager Playwright tiene viva la response finché il body non è letto, eliminando la race indipendentemente da redirect/navigazioni.
+- [ ] A.2 — `_RETRYABLE_STATUSES` esteso a `{520, 521, 522, 523, 524}` (Cloudflare) e `max_retries` portato a 4 con backoff esponenziale (1+2+4+8+16 = 31s totali).
+- [ ] A.3 — Trim del body HTML negli errori HTTP non retryable (`downloader.py:217`): summary tipo `[HTML 12kB, content-type=text/html]` invece di 200 char di `<!DOCTYPE html>`.
+- [ ] A.4 — Test:
+  - `tests/test_mangafire_resolver.py` (nuovo): server stub che redirige + verifica che `expect_response` legge il body anche con navigation;
+  - `tests/test_scrape_downloader.py`: caso 520 → retry → 200, e caso 520 persistente con summary HTML breve.
+
+**Tier B — Resilience job-level**:
+- [ ] B.1 — Retry per-capitolo nel batch: `_run_url_batch_job` (UI) e `_run_all_chapters` (CLI) wrap di `_run_url_single_chapter` in retry loop con backoff (default 2 retry, opzione `--retries-per-chapter` / UI selector). Distinguere errori retryable (5xx, race) da 4xx legittimi.
+- [ ] B.2 — Sub-chapter detection: se `page.url` finale ≠ URL richiesto, riconoscere e (a) skip se sub-chapter già in coda con warning chiaro, (b) altrimenti reindirizzare il batch al sub-chapter.
+- [ ] B.3 — Test resume per failed chapters intra-job (`Retry failed` UI): copertura E2E con scraper finto.
+
+**Tier C — Osservabilità & UX overhaul**:
+- [ ] C.1 — Per-page progress nella fase translate: parsing `[render]: 45%|████▌ | 5/11` da MITR stdout, emit `Event(type="progress", current=cur, total=tot, unit=phase)`.
+- [ ] C.2 — Tabella capitoli per batch in `JobProgress`: righe con stato (queued/running/done/failed/skipped), pagine fatte/totali, errore breve.
+- [ ] C.3 — Trim errori HTML in UI con `<details>` toggle (lato frontend, complementare ad A.3 lato backend).
+- [ ] C.4 — Watchdog capitoli lenti: warning SSE se un capitolo non emette progress da > 60 min.
+- [ ] C.5 — **Dark mode default (Apple/Uber-style)**: bg `zinc-950`, surface `zinc-900`, border `zinc-800`, primary text `zinc-100`, secondary `zinc-400`, accent `sky-500` parsimonioso. Niente toggle in v0.5; l'utente preferisce dark always.
+- [ ] C.6 — **Active batch banner** in `AppShell`: pill persistente in alto con `chapters_done/total + ETA + link al job` ovunque l'utente navighi. Risolve "non capisco se c'è un batch in corso".
+- [ ] C.7 — **Manga-level progress bar**: per `kind=url_batch`, accanto al `chapters_done/total` mostrare percentuale verso "tutti i capitoli disponibili sul source" (richiede coverage endpoint, vedi C.8).
+- [ ] C.8 — **Coverage endpoint** `GET /api/chapters/coverage?url=...&out=...`: ritorna `{available: [...], on_disk: [...], missing_before: [...], missing_after: [...]}`. Usa `scraper.list_chapters` + `scan_library` + il range corrente.
+- [ ] C.9 — **Resume / gap UX in BatchPlanner**: quando l'utente lancia un batch che ha un offset (es. `--range 34-70`), la UI rileva i capitoli mancanti < 34 (es. ch.1, 8, 15 dalla notte scorsa) e chiede esplicitamente "Includere anche i 3 capitoli mancanti precedenti? [Sì/No]".
+
+**Tier D — Test discipline**: ogni Tier sopra include i propri test
+puntuali; aggiungo qui solo macro-coverage dei nuovi flussi
+(coverage endpoint, retry loop, dark mode visual smoke).
+
+**Decisione operativa**: il job overnight è stato cancellato (status
+`cancelled`, `chapters_done=33, chapters_failed=5` — 4 originali + ch.33
+ucciso a metà). Procediamo Tier C (UX) → Tier A (resilience) → B → D. La
+priorità inversa rispetto al naturale "fixiamo prima i bug" è motivata
+dal fatto che senza C.6/C.7/C.9 l'utente non può **vedere** che i fix
+funzionano nei prossimi run lunghi.
+
 ### v0.4a.1 — Code review backend UI (2026-05-02)
 
 Revisione diretta della codebase dopo il commit `58bce50`.

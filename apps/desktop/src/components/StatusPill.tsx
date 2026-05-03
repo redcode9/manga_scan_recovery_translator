@@ -1,13 +1,16 @@
 import type { ReactNode } from "react";
 
-type Tone = "ok" | "warn" | "fail" | "info" | "muted";
+type Tone = "ok" | "warn" | "fail" | "info" | "muted" | "live";
 
 const TONE_CLASSES: Record<Tone, string> = {
-  ok: "bg-emerald-100 text-emerald-800 ring-emerald-200",
-  warn: "bg-amber-100 text-amber-800 ring-amber-200",
-  fail: "bg-rose-100 text-rose-800 ring-rose-200",
-  info: "bg-sky-100 text-sky-800 ring-sky-200",
-  muted: "bg-slate-100 text-slate-700 ring-slate-200",
+  ok: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/20",
+  warn: "bg-amber-500/10 text-amber-200 ring-amber-500/30",
+  fail: "bg-rose-500/10 text-rose-300 ring-rose-500/30",
+  info: "bg-sky-500/10 text-sky-300 ring-sky-500/30",
+  muted: "bg-zinc-500/10 text-zinc-400 ring-zinc-500/20",
+  // ``live`` is rendered with the same hue as ``info`` but a notch
+  // brighter; the consumer typically pairs it with a pulsing dot.
+  live: "bg-sky-500/15 text-sky-200 ring-sky-400/40",
 };
 
 export function StatusPill({

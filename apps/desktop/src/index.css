@@ -1,13 +1,56 @@
 @import "tailwindcss";
 
-/* Reset minimi per integrare Tailwind con il body in `index.html` */
+/* Apple/Uber-style dark surface palette as CSS custom properties so
+   inline gradients and ad-hoc styles can stay in sync with Tailwind. */
+:root {
+  --bg-base: #09090b; /* zinc-950 */
+  --bg-surface: #18181b; /* zinc-900 */
+  --bg-elevated: #27272a; /* zinc-800 */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.12);
+}
+
 html,
 body,
 #root {
   height: 100%;
+  color-scheme: dark;
 }
 
 #root {
   display: flex;
   min-height: 100vh;
+}
+
+/* Scrollbars: thin neutral rails so they fade into the surface. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Utility: subtle pulsing dot for "live" indicators (active batch,
+   running job, SSE stream open). */
+@keyframes msrt-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.msrt-pulse {
+  animation: msrt-pulse 1.6s ease-in-out infinite;
 }

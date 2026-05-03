@@ -31,7 +31,7 @@ export function LibraryPage() {
       <header className="flex items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Libreria</h1>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-zinc-500">
             Manifest delle run completate.{" "}
             {library.isLoading
               ? "Caricamento…"
@@ -39,19 +39,19 @@ export function LibraryPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-sm text-slate-500" htmlFor="out-dir">
+          <label className="text-sm text-zinc-500" htmlFor="out-dir">
             Output dir:
           </label>
           <input
             id="out-dir"
             value={outDir}
             onChange={(e) => setOutDir(e.target.value)}
-            className="w-44 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1"
+            className="w-44 rounded-md border border-white/10 bg-zinc-900 px-2.5 py-1.5 text-sm text-zinc-200 shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400/40 focus:ring-offset-1 focus:ring-offset-zinc-950"
           />
           <button
             type="button"
             onClick={() => library.refetch()}
-            className="inline-flex items-center gap-1 rounded-md bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-300"
+            className="inline-flex items-center gap-1 rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium text-zinc-200 transition hover:bg-white/15"
           >
             <RefreshCcw size={14} />
             Aggiorna
@@ -60,7 +60,7 @@ export function LibraryPage() {
       </header>
 
       {library.error && (
-        <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+        <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">
           {library.error.message}
         </div>
       )}
@@ -80,16 +80,16 @@ export function LibraryPage() {
 
 function EmptyState({ outDir }: { outDir: string }) {
   return (
-    <section className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center">
-      <Inbox className="text-slate-400" size={32} />
+    <section className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-white/10 bg-zinc-900/40 p-12 text-center">
+      <Inbox className="text-zinc-600" size={32} />
       <div>
-        <h2 className="text-base font-semibold text-slate-900">
+        <h2 className="text-base font-semibold text-zinc-100">
           Nessun manifest trovato
         </h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-zinc-500">
           Nessun <code className="font-mono text-xs">msrt-run.json</code> in{" "}
           <code className="font-mono text-xs">{outDir}/</code>. Lancia un
-          job da “Nuovo Job” o “Batch” per popolare la libreria.
+          job da "Nuovo Job" o "Batch" per popolare la libreria.
         </p>
       </div>
     </section>
@@ -100,17 +100,17 @@ function EntryCard({ entry }: { entry: LibraryEntry }) {
   const open = useMutation({ mutationFn: (path: string) => api.openPath(path) });
 
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <article className="rounded-2xl border border-white/5 bg-zinc-900/60 p-4 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
       <header className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-slate-900">
+          <h2 className="text-base font-semibold text-zinc-100">
             {entry.series ?? "Untitled"}{" "}
             {entry.chapter_number && (
-              <span className="text-slate-500">— ch. {entry.chapter_number}</span>
+              <span className="text-zinc-500">— ch. {entry.chapter_number}</span>
             )}
           </h2>
           {entry.chapter_title && (
-            <p className="text-xs text-slate-500">{entry.chapter_title}</p>
+            <p className="text-xs text-zinc-500">{entry.chapter_title}</p>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-1">
@@ -122,19 +122,17 @@ function EntryCard({ entry }: { entry: LibraryEntry }) {
             <StatusPill tone="fail">{entry.errors.length} errori</StatusPill>
           )}
           {entry.errors.length === 0 && entry.warnings.length > 0 && (
-            <StatusPill tone="warn">
-              {entry.warnings.length} warning
-            </StatusPill>
+            <StatusPill tone="warn">{entry.warnings.length} warning</StatusPill>
           )}
         </div>
       </header>
-      <dl className="mt-3 grid grid-cols-2 gap-1 text-xs text-slate-600">
+      <dl className="mt-3 grid grid-cols-2 gap-1 text-xs text-zinc-400">
         <div>
-          <dt className="uppercase tracking-wide text-slate-400">Iniziato</dt>
+          <dt className="uppercase tracking-wide text-zinc-500">Iniziato</dt>
           <dd>{formatTimestamp(entry.started_at)}</dd>
         </div>
         <div>
-          <dt className="uppercase tracking-wide text-slate-400">Durata</dt>
+          <dt className="uppercase tracking-wide text-zinc-500">Durata</dt>
           <dd>{formatDuration(entry.started_at, entry.finished_at)}</dd>
         </div>
       </dl>
@@ -143,16 +141,16 @@ function EntryCard({ entry }: { entry: LibraryEntry }) {
           {entry.output_files.map((file) => (
             <li
               key={file}
-              className="flex items-center justify-between gap-2 rounded-md bg-slate-50 px-3 py-2 text-xs"
+              className="flex items-center justify-between gap-2 rounded-md bg-white/5 px-3 py-2 text-xs"
             >
-              <span className="flex items-center gap-2 font-mono text-slate-700">
-                <FileText size={14} className="text-slate-400" />
+              <span className="flex items-center gap-2 font-mono text-zinc-300">
+                <FileText size={14} className="text-zinc-500" />
                 {pathBasename(file)}
               </span>
               <button
                 type="button"
                 onClick={() => open.mutate(file)}
-                className="inline-flex items-center gap-1 text-sky-600 hover:underline"
+                className="inline-flex items-center gap-1 text-sky-300 hover:text-sky-200 hover:underline"
               >
                 <ExternalLink size={12} />
                 apri
@@ -161,7 +159,7 @@ function EntryCard({ entry }: { entry: LibraryEntry }) {
           ))}
         </ul>
       )}
-      <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-400">
+      <div className="mt-3 flex items-center gap-2 text-[11px] text-zinc-600">
         <FolderOpen size={12} />
         <span className="truncate font-mono" title={entry.manifest_path}>
           {entry.manifest_path}

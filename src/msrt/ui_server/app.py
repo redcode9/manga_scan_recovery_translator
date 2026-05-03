@@ -61,6 +61,9 @@ from msrt.ui_server.jobs import JobManager
 from msrt.ui_server.library import load_entry, scan_library
 from msrt.ui_server.redact import redact_value
 from msrt.ui_server.schemas import (
+    CoverageChapter,
+    CoverageRequest,
+    CoverageResponse,
     DoctorReport,
     DryRunChapter,
     DryRunRequest,
@@ -259,6 +262,78 @@ def create_app(
             for ch in filtered
         ]
         return DryRunResponse(site=scraper.name, total=total, selected=len(items), chapters=items)
+
+    @app.post("/api/chapters/coverage", response_model=CoverageResponse)
+    async def chapters_coverage(request: CoverageRequest) -> CoverageResponse:
+        """Return what's available on the source, what's on disk, and
+        what falls before/after the user's planned range. Powers the
+        BatchPlanner gap detection and the manga-level progress bar."""
+
+        try:
+            scraper = scraper_for_url(request.url, site=request.site)
+        except FetchError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            chapters = await scraper.list_chapters(request.url)
+        except FetchError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        try:
+            range_filter = (
+                parse_chapter_range(request.range_filter) if request.range_filter else None
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        from msrt.ui_server.commands import _chapter_outputs_exist
+
+        all_rows: list[CoverageChapter] = []
+        on_disk_count = 0
+        before_gap: list[CoverageChapter] = []
+        after_gap: list[CoverageChapter] = []
+        in_range_seen = False
+        for chapter in chapters:
+            on_disk = _chapter_outputs_exist(
+                chapter,
+                out=request.out_dir,
+                fmt=request.fmt,
+                lang_target=request.lang_target,
+            )
+            if on_disk:
+                on_disk_count += 1
+            in_range = True
+            if range_filter is not None:
+                low, high = range_filter
+                try:
+                    num = float(chapter.chapter_number)
+                    in_range = low <= num <= high
+                except ValueError:
+                    in_range = False
+            row = CoverageChapter(
+                chapter_number=chapter.chapter_number,
+                url=chapter.url,
+                title=chapter.title,
+                series=chapter.series,
+                on_disk=on_disk,
+                in_range=in_range,
+            )
+            all_rows.append(row)
+            if not on_disk:
+                if in_range:
+                    in_range_seen = True
+                elif not in_range_seen:
+                    before_gap.append(row)
+                else:
+                    after_gap.append(row)
+
+        return CoverageResponse(
+            site=scraper.name,
+            available=all_rows,
+            available_count=len(all_rows),
+            on_disk_count=on_disk_count,
+            missing_before_range=before_gap,
+            missing_after_range=after_gap,
+        )
 
     # ------------------------------------------------------------------
     # Jobs
