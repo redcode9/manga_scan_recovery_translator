@@ -488,7 +488,11 @@ def create_app(
     # Cover art (best-effort, cached on disk)
     # ------------------------------------------------------------------
 
-    @app.get("/api/library/cover", response_class=Response)
+    # NOTE: lives at ``/api/covers`` and not ``/api/library/cover`` because
+    # ``/api/library/{manifest_id}`` is registered before this block and
+    # would shadow ``cover`` as a manifest id, returning 404 with
+    # "Manifest cover non trovato".
+    @app.get("/api/covers", response_class=Response)
     async def library_cover(
         series: str,
         source_url: str | None = None,
