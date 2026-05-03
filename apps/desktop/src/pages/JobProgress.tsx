@@ -30,18 +30,16 @@ import { api } from "../lib/api";
 import type { CoverageResponse, Job, JobStatus } from "../lib/api";
 import { useJobEvents } from "../lib/events";
 import type { JobEvent } from "../lib/events";
-import {
-  formatDuration,
-  formatTimestamp,
-  pathBasename,
-} from "../lib/format";
+import { formatDuration, formatTimestamp, pathBasename } from "../lib/format";
 import { StatusPill } from "../components/StatusPill";
+import { useToast } from "../components/Toast";
 
 export function JobProgressPage() {
   const params = useParams<{ id: string }>();
   const id = params.id ?? "";
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const job = useQuery({
     queryKey: ["job", id],
@@ -56,15 +54,35 @@ export function JobProgressPage() {
 
   const cancel = useMutation({
     mutationFn: () => api.cancelJob(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["job", id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job", id] });
+      toast.info(
+        "Cancellazione richiesta",
+        "Il worker terminerà al prossimo punto di sospensione.",
+      );
+    },
+    onError: (err: Error) =>
+      toast.error("Cancellazione fallita", err.message),
   });
+
+  const onRequestCancel = () => {
+    const ok = window.confirm(
+      "Annullare il job in corso? Il capitolo attualmente in lavorazione verrà perso e non recuperato.",
+    );
+    if (ok) cancel.mutate();
+  };
 
   const retryFailed = useMutation({
     mutationFn: () => api.retryFailed(id),
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      toast.success(
+        "Retry capitoli falliti avviato",
+        `Job ${created.id} in coda con i capitoli che mancano.`,
+      );
       navigate(`/jobs/${created.id}`);
     },
+    onError: (err: Error) => toast.error("Retry fallito", err.message),
   });
 
   const { events } = useJobEvents(id);
@@ -118,11 +136,10 @@ export function JobProgressPage() {
     <div className="space-y-6">
       <Header
         job={job.data}
-        onCancel={() => cancel.mutate()}
+        onCancel={onRequestCancel}
         cancelling={cancel.isPending}
         onRetryFailed={() => retryFailed.mutate()}
         retrying={retryFailed.isPending}
-        retryError={retryFailed.error?.message}
       />
 
       {isBatch && (
@@ -160,14 +177,12 @@ function Header({
   cancelling,
   onRetryFailed,
   retrying,
-  retryError,
 }: {
   job: Job;
   onCancel: () => void;
   cancelling: boolean;
   onRetryFailed: () => void;
   retrying: boolean;
-  retryError: string | undefined;
 }) {
   const canCancel = !TERMINAL_STATES.has(job.status);
   const canRetry =
@@ -209,13 +224,14 @@ function Header({
               type="button"
               disabled={retrying}
               onClick={onRetryFailed}
-              className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/90 px-3 py-1.5 text-sm font-medium text-zinc-950 shadow-sm transition hover:bg-amber-400 disabled:opacity-50"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-amber-500/90 px-4 py-2 text-sm font-medium text-zinc-950 shadow-sm transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50"
               title={`Rilancia i ${job.chapters_failed} capitoli falliti`}
+              aria-label={`Riprova ${job.chapters_failed} capitoli falliti`}
             >
               {retrying ? (
-                <Loader2 size={14} className="animate-spin" />
+                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
               ) : (
-                <RotateCcw size={14} />
+                <RotateCcw size={14} aria-hidden="true" />
               )}
               Riprova falliti ({job.chapters_failed})
             </button>
@@ -225,24 +241,22 @@ function Header({
               type="button"
               disabled={cancelling}
               onClick={onCancel}
-              className="inline-flex items-center gap-1.5 rounded-md bg-rose-500/90 px-3 py-1.5 text-sm font-medium text-zinc-950 shadow-sm transition hover:bg-rose-400 disabled:opacity-50"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-rose-500/90 px-4 py-2 text-sm font-medium text-zinc-950 shadow-sm transition hover:bg-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50"
+              aria-label="Annulla job in corso"
             >
-              <Ban size={14} />
+              <Ban size={14} aria-hidden="true" />
               Annulla
             </button>
           )}
           <Link
             to="/library"
-            className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium text-zinc-200 transition hover:bg-white/15"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-white/10 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
           >
             Libreria
-            <ChevronRight size={14} />
+            <ChevronRight size={14} aria-hidden="true" />
           </Link>
         </div>
       </div>
-      {retryError && (
-        <p className="text-xs text-rose-300">Retry fallito: {retryError}</p>
-      )}
     </header>
   );
 }

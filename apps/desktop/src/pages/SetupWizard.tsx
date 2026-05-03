@@ -27,6 +27,7 @@ import type {
   SettingsView,
 } from "../lib/api";
 import { StatusPill } from "../components/StatusPill";
+import { useToast } from "../components/Toast";
 
 interface ProviderConfig {
   id: "anthropic" | "openai" | "google";
@@ -146,17 +147,29 @@ function ProviderKeyCard({
 }) {
   const [value, setValue] = useState("");
   const present = isKeyPresent(provider, settings);
+  const toast = useToast();
 
   const save = useMutation({
     mutationFn: () => api.saveKey(provider.keyName, value),
-    onSuccess: (_data: SecretReportResponse) => {
+    onSuccess: (data: SecretReportResponse) => {
       setValue("");
+      toast.success(
+        `Chiave ${provider.label} salvata`,
+        data.backend === "keychain"
+          ? "Conservata nel portachiavi macOS."
+          : "Conservata in .env (portachiavi non disponibile).",
+      );
       onChange();
     },
+    onError: (err: Error) => toast.error("Salvataggio fallito", err.message),
   });
   const remove = useMutation({
     mutationFn: () => api.deleteKey(provider.keyName),
-    onSuccess: onChange,
+    onSuccess: () => {
+      toast.info(`Chiave ${provider.label} rimossa`);
+      onChange();
+    },
+    onError: (err: Error) => toast.error("Rimozione fallita", err.message),
   });
 
   const onRemove = () => {
@@ -167,6 +180,18 @@ function ProviderKeyCard({
   };
   const smoke = useMutation({
     mutationFn: () => api.testModel(provider.testModel),
+    onSuccess: (data: SetupTestResult) => {
+      if (data.ok) {
+        toast.success(
+          `Test ${provider.label} OK`,
+          data.latency_ms ? `Latenza ${data.latency_ms} ms.` : undefined,
+        );
+      } else {
+        toast.error(`Test ${provider.label} fallito`, data.message);
+      }
+    },
+    onError: (err: Error) =>
+      toast.error(`Test ${provider.label} fallito`, err.message),
   });
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {

@@ -31,6 +31,7 @@ import type {
   JobCreate,
 } from "../lib/api";
 import { StatusPill } from "../components/StatusPill";
+import { useToast } from "../components/Toast";
 
 interface PlannerState {
   url: string;
@@ -58,6 +59,7 @@ const INITIAL: PlannerState = {
 
 export function BatchPlannerPage() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [form, setForm] = useState<PlannerState>(INITIAL);
   const [result, setResult] = useState<DryRunResponse | null>(null);
 
@@ -71,6 +73,7 @@ export function BatchPlannerPage() {
         limit: form.limit.trim() ? Number(form.limit) : undefined,
       }),
     onSuccess: (data) => setResult(data),
+    onError: (err: Error) => toast.error("Dry-run fallito", err.message),
   });
 
   // Coverage runs alongside the dry-run so the gap panel updates
@@ -99,7 +102,14 @@ export function BatchPlannerPage() {
 
   const submit = useMutation({
     mutationFn: (request: JobCreate) => api.createJob(request),
-    onSuccess: (job) => navigate(`/jobs/${job.id}`),
+    onSuccess: (job) => {
+      toast.success(
+        "Batch avviato",
+        `Job ${job.id} in coda. Verrai reindirizzato alla pagina di avanzamento.`,
+      );
+      navigate(`/jobs/${job.id}`);
+    },
+    onError: (err: Error) => toast.error("Avvio batch fallito", err.message),
   });
 
   const update = <K extends keyof PlannerState>(key: K, value: PlannerState[K]) =>

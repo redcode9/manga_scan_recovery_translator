@@ -8,6 +8,12 @@
   --bg-elevated: #27272a; /* zinc-800 */
   --border-subtle: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.12);
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+    sans-serif;
+  --font-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    monospace;
 }
 
 html,
@@ -17,9 +23,60 @@ body,
   color-scheme: dark;
 }
 
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01"; /* Inter ergonomic alternates */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code,
+pre,
+.font-mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum"; /* tabular numbers in tables */
+}
+
 #root {
   display: flex;
   min-height: 100vh;
+}
+
+/* Skip link: visible only on focus, top-left, for keyboard users. */
+.skip-link {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background-color: rgb(14 165 233 / 0.9);
+  color: rgb(9 9 11);
+  font-weight: 600;
+  font-size: 0.875rem;
+  transform: translateY(-200%);
+  transition: transform 150ms ease-out;
+  z-index: 9999;
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+/* Default focus-visible: a 2px sky ring with a dark offset so it's
+   readable on every surface. Components can override with their own
+   ring via Tailwind classes. */
+:focus-visible {
+  outline: 2px solid rgb(56 189 248);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Tailwind-style focus-visible utilities won't reach <Link> by default;
+   this catches anchor + button focus states when no explicit ring is set. */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid rgb(56 189 248);
+  outline-offset: 2px;
 }
 
 /* Scrollbars: thin neutral rails so they fade into the surface. */
@@ -40,8 +97,7 @@ body,
   background-color: rgba(255, 255, 255, 0.15);
 }
 
-/* Utility: subtle pulsing dot for "live" indicators (active batch,
-   running job, SSE stream open). */
+/* Utility: subtle pulsing dot for "live" indicators. */
 @keyframes msrt-pulse {
   0%,
   100% {
@@ -53,4 +109,36 @@ body,
 }
 .msrt-pulse {
   animation: msrt-pulse 1.6s ease-in-out infinite;
+}
+
+/* Toast slide-in for the global notification stack. */
+@keyframes msrt-toast-in {
+  from {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.msrt-toast {
+  animation: msrt-toast-in 200ms ease-out both;
+}
+
+/* Respect prefers-reduced-motion: kill animations and snap transitions
+   instead of removing them outright (so layout still settles), per
+   WCAG 2.3.3 + Apple HIG. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .msrt-pulse {
+    animation: none;
+  }
 }

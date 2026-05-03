@@ -57,29 +57,36 @@ export function AppShell() {
 
   return (
     <div className="flex w-full bg-zinc-950 text-zinc-100">
-      <aside className="w-60 shrink-0 border-r border-white/5 bg-zinc-950/60 backdrop-blur-sm">
+      <a href="#main-content" className="skip-link">
+        Vai al contenuto
+      </a>
+      <aside
+        className="w-60 shrink-0 border-r border-white/5 bg-zinc-950/60 backdrop-blur-sm"
+        aria-label="Navigazione principale"
+      >
         <div className="flex items-center gap-2 px-5 py-5">
-          <div className="grid h-9 w-9 place-items-center rounded-xl bg-sky-500/15 ring-1 ring-sky-400/30">
-            <BookOpenText className="text-sky-300" size={18} />
+          <div className="grid h-10 w-10 place-items-center rounded-xl bg-sky-500/15 ring-1 ring-sky-400/30">
+            <BookOpenText className="text-sky-300" size={20} />
           </div>
           <div>
             <div className="text-base font-semibold tracking-tight">msrt</div>
             <div className="text-[11px] text-zinc-500">manga translator</div>
           </div>
         </div>
-        <nav className="flex flex-col gap-0.5 px-2">
+        <nav className="flex flex-col gap-0.5 px-2" aria-label="Sezioni">
           {NAV_ITEMS.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.to === "/"}
               className={({ isActive }) =>
-                `flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
+                `flex min-h-11 items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 ${
                   isActive
                     ? "bg-white/5 text-zinc-100"
                     : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
                 }`
               }
+              aria-current={undefined}
             >
               {item.icon}
               <span>{item.label}</span>
@@ -88,7 +95,7 @@ export function AppShell() {
         </nav>
       </aside>
 
-      <main className="flex flex-1 flex-col">
+      <main className="flex flex-1 flex-col" id="main-content">
         <Header navigating={navigation.state !== "idle"} activeJob={activeJob} />
         <div className="flex-1 overflow-y-auto px-8 py-6">
           <Outlet />

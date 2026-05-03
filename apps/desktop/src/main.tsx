@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "react-router-dom";
 
 import { router } from "./app/routes";
+import { ToastProvider } from "./components/Toast";
 import "./index.css";
 
 // Conservative defaults for a local backend: short refetch intervals
@@ -27,7 +28,9 @@ if (!rootElement) {
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <ToastProvider>
+        <RouterProvider router={router} />
+      </ToastProvider>
     </QueryClientProvider>
   </React.StrictMode>,
 );
