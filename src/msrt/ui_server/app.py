@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
@@ -41,6 +41,7 @@ from msrt.config import Settings
 from msrt.paths import env_file_path, litellm_config_path
 from msrt.paths import frontend_dist_dir as resolve_frontend_dist
 from msrt.scrape.base import FetchError
+from msrt.scrape.cover import resolve_cover
 from msrt.scrape.registry import scraper_for_url
 from msrt.scrape.selection import (
     parse_chapter_list,
@@ -475,6 +476,43 @@ def create_app(
             ],
         }
         return redact_value(payload)  # type: ignore[no-any-return]
+
+    # ------------------------------------------------------------------
+    # Cover art (best-effort, cached on disk)
+    # ------------------------------------------------------------------
+
+    @app.get("/api/library/cover", response_class=Response)
+    async def library_cover(
+        series: str,
+        source_url: str | None = None,
+        out_dir: str | None = None,
+    ) -> Response:
+        """Resolve and serve a manga cover image.
+
+        Tries MangaDex first when ``source_url`` points at a title
+        UUID, then AniList by name, then a local composite generated
+        from the on-disk scans (``out_dir/.msrt-fetch``). Cached
+        under ``cache_dir/covers`` so a second hit is local-only.
+        ``Cache-Control`` lets the browser keep the image around for
+        the rest of the session.
+        """
+
+        cover = await resolve_cover(
+            series,
+            cache_dir=Path(resolved_settings.cache_dir),
+            source_url=source_url,
+            out_dir=Path(out_dir) if out_dir else None,
+        )
+        if cover is None:
+            raise HTTPException(status_code=404, detail="Cover non trovata.")
+        return Response(
+            content=cover.content,
+            media_type=cover.content_type,
+            headers={
+                "Cache-Control": "public, max-age=86400",
+                "X-Cover-Source": cover.source,
+            },
+        )
 
     # ------------------------------------------------------------------
     # Open path (native)

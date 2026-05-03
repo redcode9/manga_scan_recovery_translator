@@ -328,6 +328,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ path }),
     }),
+
+  /** Build a cover-image URL the browser can load via ``<img src>``.
+   *  The endpoint falls back through MangaDex → AniList → composite
+   *  poster from on-disk scans → 404. The UI swaps to a gradient
+   *  placeholder ``onError``. */
+  coverUrl: (
+    series: string,
+    options: { sourceUrl?: string | null; outDir?: string } = {},
+  ): string => {
+    const params = new URLSearchParams({ series });
+    if (options.sourceUrl) params.set("source_url", options.sourceUrl);
+    if (options.outDir) params.set("out_dir", options.outDir);
+    return `/api/library/cover?${params.toString()}`;
+  },
 };
 
 export { ApiError };

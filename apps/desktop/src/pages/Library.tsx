@@ -248,13 +248,13 @@ export function SeriesCard({
         className="flex w-full items-stretch gap-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
         aria-expanded={expanded}
       >
-        <div
-          className="grid h-32 w-24 shrink-0 place-items-center font-display text-3xl font-bold tracking-tight text-white/90"
-          style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}
-          aria-hidden="true"
-        >
-          {initials}
-        </div>
+        <Poster
+          series={group.series}
+          sourceUrl={sourceUrl}
+          outDir={outDir}
+          gradient={{ from, to }}
+          initials={initials}
+        />
         <div className="flex flex-1 flex-col justify-between p-4">
           <div>
             <h2 className="text-base font-semibold text-zinc-100">
@@ -313,6 +313,56 @@ export function SeriesCard({
 
       {expanded && <ChapterList chapters={group.chapters} />}
     </article>
+  );
+}
+
+/**
+ * Poster — overlays the cover image (when available) on top of the
+ * deterministic gradient + initials fallback. The fallback is what
+ * the user sees while the network resolves and forever if the cover
+ * lookup 404's.
+ */
+function Poster({
+  series,
+  sourceUrl,
+  outDir,
+  gradient,
+  initials,
+}: {
+  series: string;
+  sourceUrl: string | undefined;
+  outDir: string;
+  gradient: { from: string; to: string };
+  initials: string;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const src = api.coverUrl(series, { sourceUrl, outDir });
+  return (
+    <div
+      className="relative grid h-32 w-24 shrink-0 place-items-center overflow-hidden font-bold tracking-tight text-white/90"
+      style={{
+        background: `linear-gradient(135deg, ${gradient.from}, ${gradient.to})`,
+      }}
+      aria-hidden="true"
+    >
+      <span
+        className={`text-3xl transition-opacity duration-300 ${loaded ? "opacity-0" : "opacity-100"}`}
+      >
+        {initials}
+      </span>
+      {!failed && (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+        />
+      )}
+    </div>
   );
 }
 
