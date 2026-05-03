@@ -76,6 +76,15 @@ class DefaultModelResponse(BaseModel):
     default_model: str
 
 
+class AutoCoverRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+
+
+class AutoCoverResponse(BaseModel):
+    auto_cover_enabled: bool
+
+
 def _env_path(settings: Settings) -> Path:
     """Locate the project ``.env`` via ``msrt.paths``. The path is
     absolute and resolved against the project root (or the
@@ -129,3 +138,22 @@ def update_default_model(request: DefaultModelRequest, settings: Settings) -> De
     os.environ["MSRT_MODEL"] = request.model
     object.__setattr__(settings, "default_model", request.model)
     return DefaultModelResponse(default_model=request.model)
+
+
+def update_auto_cover(request: AutoCoverRequest, settings: Settings) -> AutoCoverResponse:
+    """Toggle automatic cover-art retrieval. Persists ``MSRT_AUTO_COVER``
+    in ``.env`` and updates the live ``Settings`` object so the next
+    request to ``/api/library/cover`` honours the change immediately."""
+
+    env_path = _env_path(settings)
+    from msrt.setup import load_env
+
+    env = load_env(env_path) if env_path.is_file() else {}
+    env["MSRT_AUTO_COVER"] = "1" if request.enabled else "0"
+    save_env(env_path, env)
+
+    import os
+
+    os.environ["MSRT_AUTO_COVER"] = env["MSRT_AUTO_COVER"]
+    object.__setattr__(settings, "auto_cover_enabled", request.enabled)
+    return AutoCoverResponse(auto_cover_enabled=request.enabled)

@@ -11,6 +11,7 @@ stay offline and deterministic. Three scenarios:
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
@@ -126,9 +127,7 @@ def test_cover_resolver_uses_disk_cache_on_second_call(tmp_path: Path) -> None:
                 json={
                     "data": {
                         "Media": {
-                            "coverImage": {
-                                "extraLarge": "https://media.example.test/cover.jpg"
-                            }
+                            "coverImage": {"extraLarge": "https://media.example.test/cover.jpg"}
                         }
                     }
                 },
@@ -196,6 +195,73 @@ def test_cover_resolver_falls_back_to_local_composite_when_apis_miss(
     img = Image.open(BytesIO(cover.content))
     assert img.size == (600, 800)
     assert img.format == "JPEG"
+
+
+def test_cover_resolver_uses_openai_when_local_composite_misses(
+    tmp_path: Path,
+) -> None:
+    """When MangaDex / AniList / on-disk composite all return nothing
+    AND an OpenAI key is configured, the resolver should hit the
+    images endpoint and decode the base64 PNG it sends back."""
+
+    import base64
+
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"AI" * 64
+    encoded = base64.b64encode(fake_png).decode("ascii")
+    seen_endpoints: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        seen_endpoints.append(url)
+        if "graphql.anilist.co" in url:
+            return httpx.Response(200, json={"data": {"Media": None}})
+        if "api.openai.com/v1/images/generations" in url:
+            assert request.headers["authorization"].startswith("Bearer ")
+            body = json.loads(request.content)
+            assert body["model"] == "gpt-image-1"
+            assert "manga" in body["prompt"].lower()
+            return httpx.Response(200, json={"data": [{"b64_json": encoded}]})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    cover = _run(
+        resolve_cover(
+            "Untraced Series",
+            cache_dir=tmp_path,
+            openai_api_key="sk-test-key",
+            transport=transport,
+        )
+    )
+
+    assert cover is not None
+    assert cover.source == "ai-generated"
+    assert cover.content == fake_png
+    assert any("api.openai.com" in u for u in seen_endpoints)
+
+
+def test_cover_resolver_skips_openai_without_key(tmp_path: Path) -> None:
+    """No OpenAI key → never call the images endpoint, even when all
+    other tiers miss. The user opted out implicitly by not configuring
+    one, and we don't want surprise billing when the resolver runs."""
+
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        if "api.openai.com" in seen[-1]:
+            raise AssertionError("OpenAI must NOT be called without a key")
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    cover = _run(
+        resolve_cover(
+            "Untraced Series",
+            cache_dir=tmp_path,
+            openai_api_key=None,
+            transport=transport,
+        )
+    )
+    assert cover is None
 
 
 def test_cover_resolver_caches_negative_lookups_to_avoid_hammering(tmp_path: Path) -> None:

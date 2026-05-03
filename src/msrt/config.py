@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     litellm_port: int = Field(default=4000, alias="LITELLM_PORT")
     mitr_bin_path: str | None = Field(default=None, alias="MITR_BIN_PATH")
     cache_dir: Path = Field(default_factory=lambda: Path.home() / ".cache" / "msrt")
+    # Auto cover-art retrieval: when ``True`` (default) the library
+    # endpoint walks the resolver chain (MangaDex → AniList → local
+    # composite → AI-generated) to surface the best cover available.
+    # Setting this to ``False`` skips the chain entirely and the UI
+    # falls back to the gradient placeholder.
+    auto_cover_enabled: bool = Field(default=True, alias="MSRT_AUTO_COVER")
 
     def __init__(self, **kwargs: Any) -> None:
         # Resolve the ``.env`` location lazily so that

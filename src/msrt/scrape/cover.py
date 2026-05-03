@@ -1,6 +1,6 @@
 """Cover-art resolver per la libreria.
 
-Strategia in quattro passi, dalla più affidabile alla più generica:
+Strategia in cinque passi, dalla più affidabile alla più generica:
 
 1. Se il manga proviene da un URL MangaDex con UUID titolo, usiamo la
    API ufficiale ``api.mangadex.org/cover?manga[]=<uuid>`` — è la
@@ -12,9 +12,13 @@ Strategia in quattro passi, dalla più affidabile alla più generica:
    disco (cartella ``out/.msrt-fetch/<adapter>/<series>/...``),
    generiamo un poster sintetico: ritaglio 3:4 della pagina più
    "rappresentativa" + gradiente in basso per leggibilità del titolo
-   sovrapposto. Colori e stile vengono dai disegni reali, niente AI
-   generativa esterna.
-4. Se nessuna delle precedenti produce un'immagine, ritorniamo
+   sovrapposto. Colori e stile vengono dai disegni reali.
+4. **AI generativa** (OpenAI ``gpt-image-1``): quando esiste una
+   chiave OpenAI ma né MangaDex né AniList né le scan locali hanno
+   prodotto qualcosa, generiamo una cover sintetica con un prompt
+   manga-aware. Costo ~0.011$ per immagine in qualità ``low``,
+   cachata 60 giorni: una sola chiamata per serie, mai più.
+5. Se nessuna delle precedenti produce un'immagine, ritorniamo
    ``None`` e l'UI mostra il poster a gradiente.
 
 Caching: ogni chiamata risolta viene cachata in
@@ -27,6 +31,7 @@ serie che semplicemente non esistono ancora nel loro catalogo.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import io
 import json
@@ -72,14 +77,19 @@ async def resolve_cover(
     cache_dir: Path,
     source_url: str | None = None,
     out_dir: Path | None = None,
+    openai_api_key: str | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> CoverResult | None:
     """Best-effort cover lookup with on-disk cache.
 
     ``out_dir`` is the user's library output directory; when provided,
     the resolver can fall back to a synthetic poster generated from
-    the manga's own scanned pages (``.msrt-fetch/...``) — useful for
-    series that don't appear on MangaDex/AniList.
+    the manga's own scanned pages (``.msrt-fetch/...``).
+
+    ``openai_api_key`` enables the AI-generated tier: when none of the
+    catalogue sources nor the local scans yielded a cover, we ask
+    OpenAI's ``gpt-image-1`` to draw one in a manga style. Skipped
+    when the key is empty.
     """
 
     cleaned = (series or "").strip()
@@ -116,15 +126,25 @@ async def resolve_cover(
             _write_cached(img_path, meta_path, cover)
             return cover
 
-    # 3. Local composite from on-disk scans — works offline and for
-    #    series that aren't catalogued anywhere.
-    if out_dir is not None:
-        composite = await _local_composite_cover(cleaned, out_dir=out_dir)
-        if composite is not None:
-            _write_cached(img_path, meta_path, composite)
-            return composite
+        # 3. Local composite from on-disk scans — works offline and for
+        #    series that aren't catalogued anywhere.
+        if out_dir is not None:
+            composite = await _local_composite_cover(cleaned, out_dir=out_dir)
+            if composite is not None:
+                _write_cached(img_path, meta_path, composite)
+                return composite
 
-    # 4. No hit — write a small "miss marker" so we don't hammer the
+        # 4. AI-generated last resort. Only fired when we have nothing
+        #    else AND the user has an OpenAI key configured.
+        if openai_api_key:
+            generated = await _fetch_ai_generated_cover(
+                client, cleaned, openai_api_key=openai_api_key
+            )
+            if generated is not None:
+                _write_cached(img_path, meta_path, generated)
+                return generated
+
+    # 5. No hit — write a small "miss marker" so we don't hammer the
     #    APIs for a title that simply isn't in their catalogue.
     _write_miss(meta_path)
     return None
@@ -213,9 +233,7 @@ def _mangadex_title_uuid(source_url: str | None) -> str | None:
     return match.group("uuid") if match else None
 
 
-async def _fetch_mangadex_cover(
-    client: httpx.AsyncClient, manga_uuid: str
-) -> CoverResult | None:
+async def _fetch_mangadex_cover(client: httpx.AsyncClient, manga_uuid: str) -> CoverResult | None:
     """Resolve the title's primary cover via MangaDex's public API."""
 
     try:
@@ -259,6 +277,79 @@ async def _fetch_mangadex_cover(
     )
 
 
+_OPENAI_IMAGES_ENDPOINT = "https://api.openai.com/v1/images/generations"
+_AI_TIMEOUT = 90.0
+
+
+async def _fetch_ai_generated_cover(
+    client: httpx.AsyncClient,
+    series: str,
+    *,
+    openai_api_key: str,
+) -> CoverResult | None:
+    """Generate a manga-style cover via OpenAI ``gpt-image-1``.
+
+    We ask for a vertical 1024x1536 PNG in ``low`` quality (cheapest
+    tier, ~$0.011/image at the 2026-04 price list). The prompt is
+    deliberately neutral on character / plot specifics — we don't
+    know them — but rich on the *style* keywords manga readers
+    expect, so the result feels at home next to a real cover.
+
+    The request can take 5-15 seconds; the resolver runs inside an
+    async endpoint so the FastAPI loop stays free, and the cache
+    layer ensures only the first hit pays the cost.
+    """
+
+    prompt = (
+        f"A vertical Japanese manga book cover poster for the series '{series}'. "
+        "Single-character portrait composition, dramatic angle, vivid saturated "
+        "colors, ink-line illustration with cel shading and soft gradients, "
+        "high detail on hair and clothing folds, dynamic background suggestive "
+        "of the genre. Aspect ratio 3:4. No text, no title, no logos, no "
+        "watermarks, no signature."
+    )
+    try:
+        resp = await client.post(
+            _OPENAI_IMAGES_ENDPOINT,
+            headers={"Authorization": f"Bearer {openai_api_key}"},
+            json={
+                "model": "gpt-image-1",
+                "prompt": prompt,
+                "n": 1,
+                "size": "1024x1536",
+                "quality": "low",
+            },
+            timeout=_AI_TIMEOUT,
+        )
+    except httpx.HTTPError as exc:
+        _LOG.debug("OpenAI image generation failed for %s: %s", series, exc)
+        return None
+    if resp.status_code != 200:
+        _LOG.debug("OpenAI image generation returned %d for %s", resp.status_code, series)
+        return None
+    try:
+        payload = resp.json()
+    except ValueError:
+        return None
+    data = payload.get("data") or []
+    if not data:
+        return None
+    b64 = data[0].get("b64_json")
+    if not isinstance(b64, str) or not b64:
+        return None
+    try:
+        image_bytes = base64.b64decode(b64)
+    except (ValueError, TypeError):
+        return None
+    if not image_bytes:
+        return None
+    return CoverResult(
+        content=image_bytes,
+        content_type="image/png",
+        source="ai-generated",
+    )
+
+
 _ANILIST_QUERY = """
 query ($search: String) {
   Media(search: $search, type: MANGA, sort: SEARCH_MATCH) {
@@ -270,9 +361,7 @@ query ($search: String) {
 """.strip()
 
 
-async def _local_composite_cover(
-    series: str, *, out_dir: Path
-) -> CoverResult | None:
+async def _local_composite_cover(series: str, *, out_dir: Path) -> CoverResult | None:
     """Generate a poster from the manga's own pages.
 
     Picks the highest-resolution first-page from any chapter under
@@ -388,9 +477,7 @@ def _slugify_for_fs(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
-async def _fetch_anilist_cover(
-    client: httpx.AsyncClient, series: str
-) -> CoverResult | None:
+async def _fetch_anilist_cover(client: httpx.AsyncClient, series: str) -> CoverResult | None:
     try:
         resp = await client.post(
             _ANILIST_ENDPOINT,

@@ -92,6 +92,7 @@ export interface SettingsView {
   has_anthropic_key: boolean;
   has_openai_key: boolean;
   has_gemini_key: boolean;
+  auto_cover_enabled: boolean;
 }
 
 export type SecretName =
@@ -289,6 +290,11 @@ export const api = {
     request<DefaultModelResponse>("/api/setup/default-model", {
       method: "POST",
       body: JSON.stringify({ model }),
+    }),
+  setAutoCover: (enabled: boolean) =>
+    request<{ auto_cover_enabled: boolean }>("/api/setup/auto-cover", {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
     }),
 
   dryRun: (body: DryRunRequest) =>

@@ -50,4 +50,5 @@ def settings_view(settings: Settings | None = None) -> SettingsView:
         has_anthropic_key=bool(s.anthropic_api_key) or _keychain_has("ANTHROPIC_API_KEY"),
         has_openai_key=bool(s.openai_api_key) or _keychain_has("OPENAI_API_KEY"),
         has_gemini_key=bool(s.gemini_api_key) or _keychain_has("GEMINI_API_KEY"),
+        auto_cover_enabled=s.auto_cover_enabled,
     )

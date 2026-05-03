@@ -82,6 +82,8 @@ from msrt.ui_server.schemas import (
 from msrt.ui_server.secrets import hydrate_process_env
 from msrt.ui_server.settings_api import settings_view
 from msrt.ui_server.setup_api import (
+    AutoCoverRequest,
+    AutoCoverResponse,
     DefaultModelRequest,
     DefaultModelResponse,
     DeleteKeyRequest,
@@ -92,6 +94,7 @@ from msrt.ui_server.setup_api import (
     remove_api_key,
     save_api_key,
     smoke_test_provider,
+    update_auto_cover,
     update_default_model,
 )
 
@@ -208,6 +211,10 @@ def create_app(
     @app.post("/api/setup/default-model", response_model=DefaultModelResponse)
     def setup_default_model(request: DefaultModelRequest) -> DefaultModelResponse:
         return update_default_model(request, resolved_settings)
+
+    @app.post("/api/setup/auto-cover", response_model=AutoCoverResponse)
+    def setup_auto_cover(request: AutoCoverRequest) -> AutoCoverResponse:
+        return update_auto_cover(request, resolved_settings)
 
     @app.post("/api/server/down", response_model=ServerActionResponse)
     def server_down() -> ServerActionResponse:
@@ -489,19 +496,24 @@ def create_app(
     ) -> Response:
         """Resolve and serve a manga cover image.
 
-        Tries MangaDex first when ``source_url`` points at a title
-        UUID, then AniList by name, then a local composite generated
-        from the on-disk scans (``out_dir/.msrt-fetch``). Cached
-        under ``cache_dir/covers`` so a second hit is local-only.
-        ``Cache-Control`` lets the browser keep the image around for
-        the rest of the session.
+        Tries MangaDex → AniList → local composite from on-disk scans
+        → AI-generated (when an OpenAI key is available). The
+        ``auto_cover_enabled`` settings flag short-circuits the chain
+        when the user opted out, so the UI falls back to its gradient
+        placeholder. Cached under ``cache_dir/covers``.
         """
 
+        if not resolved_settings.auto_cover_enabled:
+            raise HTTPException(
+                status_code=404,
+                detail="Recupero cover disabilitato dalle Impostazioni.",
+            )
         cover = await resolve_cover(
             series,
             cache_dir=Path(resolved_settings.cache_dir),
             source_url=source_url,
             out_dir=Path(out_dir) if out_dir else None,
+            openai_api_key=resolved_settings.openai_api_key,
         )
         if cover is None:
             raise HTTPException(status_code=404, detail="Cover non trovata.")

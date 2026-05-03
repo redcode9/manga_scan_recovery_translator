@@ -33,7 +33,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { api } from "../lib/api";
-import type { JobCreate, LibraryEntry } from "../lib/api";
+import type { JobCreate, LibraryEntry, SettingsView } from "../lib/api";
 import {
   type SeriesGroup,
   compareChapterNumbers,
@@ -158,6 +158,12 @@ export function SeriesCard({
 }) {
   const navigate = useNavigate();
   const toast = useToast();
+  const settings = useQuery({
+    queryKey: ["settings"],
+    queryFn: api.settings,
+  });
+  const autoCover =
+    (settings.data as SettingsView | undefined)?.auto_cover_enabled ?? true;
   const [coverageEnabled, setCoverageEnabled] = useState(defaultExpanded);
   const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -254,6 +260,7 @@ export function SeriesCard({
           outDir={outDir}
           gradient={{ from, to }}
           initials={initials}
+          autoCoverEnabled={autoCover}
         />
         <div className="flex flex-1 flex-col justify-between p-4">
           <div>
@@ -320,7 +327,9 @@ export function SeriesCard({
  * Poster — overlays the cover image (when available) on top of the
  * deterministic gradient + initials fallback. The fallback is what
  * the user sees while the network resolves and forever if the cover
- * lookup 404's.
+ * lookup 404's. When the user disabled "Recupero automatico
+ * copertine" in Impostazioni, the ``<img>`` is never rendered so we
+ * don't fire a request that's just going to 404.
  */
 function Poster({
   series,
@@ -328,15 +337,18 @@ function Poster({
   outDir,
   gradient,
   initials,
+  autoCoverEnabled,
 }: {
   series: string;
   sourceUrl: string | undefined;
   outDir: string;
   gradient: { from: string; to: string };
   initials: string;
+  autoCoverEnabled: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const showImage = autoCoverEnabled && !failed;
   const src = api.coverUrl(series, { sourceUrl, outDir });
   return (
     <div
@@ -347,11 +359,11 @@ function Poster({
       aria-hidden="true"
     >
       <span
-        className={`text-3xl transition-opacity duration-300 ${loaded ? "opacity-0" : "opacity-100"}`}
+        className={`text-3xl transition-opacity duration-300 ${loaded && showImage ? "opacity-0" : "opacity-100"}`}
       >
         {initials}
       </span>
-      {!failed && (
+      {showImage && (
         <img
           src={src}
           alt=""

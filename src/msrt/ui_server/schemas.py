@@ -287,6 +287,7 @@ class SettingsView(BaseModel):
     has_anthropic_key: bool
     has_openai_key: bool
     has_gemini_key: bool
+    auto_cover_enabled: bool
 
 
 class HealthResponse(BaseModel):

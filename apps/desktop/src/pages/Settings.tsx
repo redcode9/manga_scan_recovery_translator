@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   Download,
   Globe2,
+  ImageIcon,
   KeyRound,
   LifeBuoy,
   Loader2,
@@ -110,6 +111,7 @@ export function SettingsPage() {
       {settings.data && (
         <div className="space-y-6">
           <DefaultModelCard settings={settings.data} onSaved={invalidate} />
+          <AutoCoverCard settings={settings.data} onSaved={invalidate} />
 
           <section className="space-y-3">
             <SectionTitle>Chiavi API provider</SectionTitle>
@@ -397,6 +399,103 @@ function DefaultModelCard({
         </button>
       </div>
     </section>
+  );
+}
+
+function AutoCoverCard({
+  settings,
+  onSaved,
+}: {
+  settings: SettingsView;
+  onSaved: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const mutation = useMutation({
+    mutationFn: (enabled: boolean) => api.setAutoCover(enabled),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["library"] });
+      toast.success(
+        data.auto_cover_enabled
+          ? "Recupero copertine attivato"
+          : "Recupero copertine disattivato",
+      );
+      onSaved();
+    },
+    onError: (err: Error) => toast.error("Salvataggio fallito", err.message),
+  });
+
+  const enabled = settings.auto_cover_enabled;
+
+  return (
+    <section className="rounded-2xl border border-white/5 bg-zinc-900/60 p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
+      <header className="mb-3">
+        <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
+          <ImageIcon size={16} className="text-zinc-500" aria-hidden="true" />
+          Recupero automatico copertine
+        </h2>
+        <p className="mt-1 text-xs text-zinc-500">
+          Ogni serie nella libreria riceve automaticamente la migliore
+          copertina disponibile, in quest'ordine: <strong>MangaDex</strong>{" "}
+          (per le serie con UUID titolo) → <strong>AniList</strong>{" "}
+          (catalogo globale per nome) → <strong>composito locale</strong>{" "}
+          dalle scan già su disco → <strong>generata da AI</strong>{" "}
+          (richiede una chiave OpenAI). Disattiva il toggle se preferisci
+          il poster a gradiente per tutte le serie.
+        </p>
+      </header>
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-white/5 bg-zinc-950/40 p-3">
+        <div className="text-sm">
+          <p className="font-medium text-zinc-100">
+            {enabled ? "Attivo" : "Disattivato"}
+          </p>
+          <p className="text-xs text-zinc-500">
+            {enabled
+              ? "Le card della libreria mostrano la copertina ufficiale o generata."
+              : "Tutte le card mostrano il poster a gradiente con le iniziali."}
+          </p>
+        </div>
+        <ToggleSwitch
+          checked={enabled}
+          disabled={mutation.isPending}
+          onChange={(value) => mutation.mutate(value)}
+          ariaLabel="Recupero automatico copertine"
+        />
+      </div>
+    </section>
+  );
+}
+
+function ToggleSwitch({
+  checked,
+  disabled,
+  onChange,
+  ariaLabel,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (value: boolean) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:cursor-not-allowed disabled:opacity-50 ${
+        checked ? "bg-sky-500" : "bg-zinc-700"
+      }`}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+          checked ? "translate-x-6" : "translate-x-1"
+        }`}
+        aria-hidden="true"
+      />
+    </button>
   );
 }
 
