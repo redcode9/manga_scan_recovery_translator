@@ -831,6 +831,113 @@ def test_retry_failed_rejects_non_batch_jobs(
     assert "batch" in retry.json()["detail"].lower()
 
 
+def test_batch_retries_retryable_chapter_failures(
+    isolated_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """If a chapter raises a retryable network error, the batch must
+    retry up to ``max_attempts`` with backoff and succeed on the
+    retry — not fail the whole capitolo at the first 520. This is the
+    Tier B.1 fix that would have rescued ch.8 / ch.15 in the overnight
+    Wistoria run."""
+
+    from msrt.scrape.base import FetchError
+    from msrt.ui_server import commands as commands_module
+
+    attempts = {"count": 0}
+
+    async def flaky_single_chapter(
+        ctx,  # type: ignore[no-untyped-def]
+        site_name: str,
+        url: str,
+        *,
+        batch: bool = False,
+    ) -> None:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise FetchError("Reader-network MangaFire fallito (HTTP 520 su https://example/.png)")
+
+    real_sleep = asyncio.sleep
+
+    async def instant_sleep(_seconds: float) -> None:
+        await real_sleep(0)
+
+    monkeypatch.setattr(commands_module, "_run_url_single_chapter", flaky_single_chapter)
+    monkeypatch.setattr(commands_module.asyncio, "sleep", instant_sleep)
+
+    class _DummyCtx:
+        cancel_requested = False
+
+        def __init__(self) -> None:
+            self.job = type("J", (), {"id": "test", "warnings": [], "errors": []})()
+            self.emitted: list[Event] = []
+
+        async def emit(self, event: Event) -> None:
+            self.emitted.append(event)
+
+    ctx = _DummyCtx()
+    asyncio.run(
+        commands_module._run_chapter_with_retry(
+            ctx,  # type: ignore[arg-type]
+            "fakemd",
+            "https://fake/c-1",
+            chapter_number="1",
+        )
+    )
+
+    assert attempts["count"] == 2, "should retry exactly once before succeeding"
+    assert any(ev.type == "warning" and "retry 1" in (ev.message or "") for ev in ctx.emitted)
+
+
+def test_batch_does_not_retry_non_retryable_failures(
+    isolated_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 404 / parse error must NOT consume retries — those are
+    deterministic failures and waste an MITR pass."""
+
+    from msrt.scrape.base import FetchError
+    from msrt.ui_server import commands as commands_module
+
+    attempts = {"count": 0}
+
+    async def hard_fail(
+        ctx,  # type: ignore[no-untyped-def]
+        site_name: str,
+        url: str,
+        *,
+        batch: bool = False,
+    ) -> None:
+        attempts["count"] += 1
+        raise FetchError("URL non valido: parse error")
+
+    monkeypatch.setattr(commands_module, "_run_url_single_chapter", hard_fail)
+
+    class _DummyCtx:
+        cancel_requested = False
+
+        def __init__(self) -> None:
+            self.job = type("J", (), {"id": "test", "warnings": [], "errors": []})()
+            self.emitted: list[Event] = []
+
+        async def emit(self, event: Event) -> None:
+            self.emitted.append(event)
+
+    ctx = _DummyCtx()
+    with pytest.raises(FetchError):
+        asyncio.run(
+            commands_module._run_chapter_with_retry(
+                ctx,  # type: ignore[arg-type]
+                "fakemd",
+                "https://fake/c-1",
+                chapter_number="1",
+            )
+        )
+
+    assert attempts["count"] == 1, "non-retryable failure must not consume retries"
+
+
 def test_zombie_queued_jobs_are_cancelled_on_restart(
     isolated_settings: Settings, tmp_path: Path
 ) -> None:

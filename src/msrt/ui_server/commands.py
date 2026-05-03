@@ -116,6 +116,7 @@ def _invoke_run_local(
     """
 
     import threading
+    import time
 
     expected_pages = sum(
         1 for _ in input_dir.glob("*") if _.is_file() and _.suffix.lower() in _IMAGE_SUFFIXES
@@ -130,6 +131,12 @@ def _invoke_run_local(
 
     def watch_translated_pages() -> None:
         last_count = -1
+        last_change_at = time.monotonic()
+        # Stall threshold: emit one warning if no new page lands for
+        # this many seconds. Keeps the user from staring at a frozen
+        # progress bar without context.
+        stall_threshold_s = _STALL_THRESHOLD_SECONDS
+        warned_about_stall = False
         while not watcher_stop.wait(2.0):
             try:
                 count = sum(
@@ -139,8 +146,11 @@ def _invoke_run_local(
                 )
             except FileNotFoundError:
                 continue
+            now = time.monotonic()
             if count != last_count:
                 last_count = count
+                last_change_at = now
+                warned_about_stall = False
                 schedule_emit(
                     Event(
                         type="progress",
@@ -149,6 +159,26 @@ def _invoke_run_local(
                         current=count,
                         total=max(expected_pages, count),
                         unit="pages",
+                    )
+                )
+            elif (
+                not warned_about_stall
+                and now - last_change_at > stall_threshold_s
+                and count < expected_pages
+            ):
+                warned_about_stall = True
+                schedule_emit(
+                    Event(
+                        type="warning",
+                        job_id=ctx.job.id,
+                        chapter=chapter_number,
+                        level="warn",
+                        message=(
+                            f"ch.{chapter_number}: nessuna pagina tradotta da "
+                            f"{int((now - last_change_at) / 60)} min "
+                            f"(ferma a {count}/{expected_pages}). "
+                            "Verifica che MITR non sia bloccato."
+                        ),
                     )
                 )
 
@@ -217,6 +247,10 @@ def _invoke_run_local(
 
 
 _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp"})
+# Per-chapter stall threshold for the page watcher. 15 minutes is
+# longer than any normal MITR pass (worst seen ~1 page/min on dense
+# 50-page chapters) but short enough to surface a real freeze.
+_STALL_THRESHOLD_SECONDS = 15 * 60
 
 
 # ----------------------------------------------------------------------------

@@ -1,24 +1,26 @@
 /**
- * Nuovo Job — UI per costruire una ``JobCreate`` request.
+ * Nuovo Job — UI per un singolo job (cartella locale o URL capitolo).
  *
- * Tre modalità:
+ * Le batch su intere serie hanno una pagina dedicata (``/batch``)
+ * con dry-run, copertura e gap-fill: lì la UX è studiata per il
+ * caso batch e replicarla qui sarebbe ridondante. Tutto quello che
+ * non è batch passa da questa pagina.
+ *
+ * Modalità:
  *  - **Cartella locale** → ``kind: "local"`` (input_dir).
  *  - **URL singolo capitolo** → ``kind: "url"`` (input_url + i_own_rights).
- *  - **URL serie / batch** → ``kind: "url_batch"`` (idem + selectors).
- *
- * Le opzioni avanzate sono dietro un disclosure ``<details>`` per
- * non sovraccaricare il primo sguardo.
  */
 
 import { ChevronDown, FolderOpen, Globe, Layers, ShieldAlert } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { api } from "../lib/api";
 import type { JobCreate, JobKind } from "../lib/api";
 
-type FormMode = "local" | "url" | "url_batch";
+type FormMode = "local" | "url";
 
 interface FormState {
   mode: FormMode;
@@ -101,12 +103,21 @@ export function NewJobPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Nuovo Job</h1>
-        <p className="text-sm text-zinc-500">
-          Cartella locale, URL singolo capitolo o batch su tutti i capitoli
-          di una serie.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Nuovo Job</h1>
+          <p className="text-sm text-zinc-500">
+            Una cartella locale di immagini o un singolo URL capitolo.
+            Per scaricare un'intera serie usa la pagina <strong>Batch</strong>.
+          </p>
+        </div>
+        <Link
+          to="/batch"
+          className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-white/10"
+        >
+          <Layers size={14} />
+          Batch su una serie →
+        </Link>
       </header>
 
       <form
@@ -207,8 +218,6 @@ export function NewJobPage() {
           </div>
         )}
 
-        {form.mode === "url_batch" && <BatchSelectors form={form} update={update} />}
-
         <details className="rounded-lg border border-white/5 p-4 [&_summary]:cursor-pointer">
           <summary className="flex items-center gap-1.5 text-sm font-medium text-zinc-300">
             <ChevronDown size={14} className="transition-transform [details[open]_&]:rotate-180" />
@@ -267,10 +276,10 @@ export function NewJobPage() {
         </details>
 
         {requiresRights && (
-          <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-500/10 p-4">
-            <ShieldAlert className="mt-0.5 text-amber-600" size={18} />
+          <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+            <ShieldAlert className="mt-0.5 text-amber-300" size={18} />
             <div className="flex-1 space-y-2">
-              <p className="text-sm text-amber-900">
+              <p className="text-sm text-amber-100">
                 Stai scaricando contenuti da Internet. Conferma di avere il
                 diritto di farlo (contenuto tuo, pubblico dominio, o
                 licenza che lo consente). Guardrail UX, non tutela legale.
@@ -314,63 +323,57 @@ function ModeSwitch({
   mode: FormMode;
   onChange: (mode: FormMode) => void;
 }) {
-  const options: { value: FormMode; label: string; icon: React.ReactNode }[] = [
-    { value: "local", label: "Cartella locale", icon: <FolderOpen size={16} /> },
-    { value: "url", label: "URL capitolo", icon: <Globe size={16} /> },
-    { value: "url_batch", label: "URL serie / batch", icon: <Layers size={16} /> },
+  const options: {
+    value: FormMode;
+    label: string;
+    description: string;
+    icon: React.ReactNode;
+  }[] = [
+    {
+      value: "local",
+      label: "Cartella locale",
+      description: "Hai già le immagini su disco e vuoi solo tradurle.",
+      icon: <FolderOpen size={16} />,
+    },
+    {
+      value: "url",
+      label: "URL capitolo",
+      description: "Un singolo capitolo da MangaDex o MangaFire.",
+      icon: <Globe size={16} />,
+    },
   ];
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
       {options.map((opt) => (
         <button
           key={opt.value}
           type="button"
           onClick={() => onChange(opt.value)}
-          className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium ring-1 transition ${
+          className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-left transition ${
             mode === opt.value
-              ? "bg-sky-600 text-white ring-sky-600"
-              : "bg-white text-zinc-300 ring-white/10 hover:bg-white/5"
+              ? "border-sky-400/40 bg-sky-500/10"
+              : "border-white/5 bg-white/5 hover:bg-white/10"
           }`}
         >
-          {opt.icon}
-          {opt.label}
+          <span
+            className={`mt-0.5 grid h-7 w-7 place-items-center rounded-md ring-1 ${
+              mode === opt.value
+                ? "bg-sky-500/15 text-sky-200 ring-sky-400/30"
+                : "bg-zinc-950/60 text-zinc-400 ring-white/10"
+            }`}
+          >
+            {opt.icon}
+          </span>
+          <span>
+            <span className="block text-sm font-medium text-zinc-100">
+              {opt.label}
+            </span>
+            <span className="mt-0.5 block text-xs text-zinc-500">
+              {opt.description}
+            </span>
+          </span>
         </button>
       ))}
-    </div>
-  );
-}
-
-function BatchSelectors({
-  form,
-  update,
-}: {
-  form: FormState;
-  update: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
-}) {
-  return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-      <Field label="Range capitoli" hint="Es. 50-51 (inclusivo).">
-        <input
-          value={form.rangeFilter}
-          onChange={(e) => update("rangeFilter", e.target.value)}
-          className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
-        />
-      </Field>
-      <Field label="Capitoli espliciti" hint="Es. 50,51,51.1">
-        <input
-          value={form.chaptersFilter}
-          onChange={(e) => update("chaptersFilter", e.target.value)}
-          className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
-        />
-      </Field>
-      <Field label="Limit" hint="Primi N capitoli, dopo i filtri.">
-        <input
-          inputMode="numeric"
-          value={form.limit}
-          onChange={(e) => update("limit", e.target.value)}
-          className="w-full rounded-md border border-white/10 px-3 py-2 text-sm shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-950"
-        />
-      </Field>
     </div>
   );
 }
@@ -419,6 +422,9 @@ function Toggle({
 
 function buildJobCreate(form: FormState): JobCreate | null {
   const kind: JobKind = form.mode;
+  // ``url_batch`` is no longer a NewJob mode; the dedicated /batch
+  // page owns that flow. The cast below stays for type compatibility
+  // with ``JobKind`` (which still accepts the literal for the API).
   const options: JobCreate["options"] = {
     format: form.format,
     renderer: form.renderer,

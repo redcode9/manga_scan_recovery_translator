@@ -19,10 +19,10 @@ export function StubPage({ title, description, milestone }: StubPageProps) {
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         <p className="text-sm text-zinc-500">{description}</p>
       </header>
-      <section className="flex items-start gap-3 rounded-xl border border-dashed border-amber-300 bg-amber-500/10 p-5">
-        <Hammer className="mt-0.5 text-amber-600" size={20} />
+      <section className="flex items-start gap-3 rounded-xl border border-dashed border-amber-500/30 bg-amber-500/10 p-5">
+        <Hammer className="mt-0.5 text-amber-300" size={20} />
         <div>
-          <h2 className="text-sm font-semibold text-amber-900">
+          <h2 className="text-sm font-semibold text-amber-100">
             In arrivo in {milestone}
           </h2>
           <p className="mt-1 text-sm text-amber-200">

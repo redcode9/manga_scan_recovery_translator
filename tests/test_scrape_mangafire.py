@@ -200,6 +200,64 @@ def test_mangafire_fetch_prefers_reader_network(
     ]
 
 
+def test_mangafire_fetch_relabels_shell_chapter_to_actual_subchapter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression for the overnight Wistoria run: the user requested
+    ``/chapter-1`` but MangaFire's reader actually serves ch.1.1 in
+    place. The adapter must relabel the FetchResult so the manifest
+    and PDF carry chapter ``1.1``, with a clear warning explaining
+    the relabel — otherwise we'd produce a ``ch.1`` PDF whose
+    content is really 1.1 (silent corruption)."""
+
+    class _ShellResolver:
+        seen_url: str | None = None
+
+        async def resolve(self, url: str) -> MangaFireReaderPages:
+            self.seen_url = url
+            return MangaFireReaderPages(
+                image_urls=["https://img.example.test/page-1.jpg"],
+                observed_chapter="1.1",
+            )
+
+        async def list_chapters(self, url: str):  # type: ignore[no-untyped-def]
+            raise AssertionError("not exercised")
+
+    async def fake_download_pages(jobs, **kwargs):  # type: ignore[no-untyped-def]
+        output_dir = kwargs["output_dir"]
+        output_dir.mkdir(parents=True, exist_ok=True)
+        files: list[DownloadedFile] = []
+        for job in jobs:
+            path = output_dir / f"{job.index:03d}.png"
+            body = _png_bytes(job.index * 30)
+            path.write_bytes(body)
+            files.append(
+                DownloadedFile(
+                    index=job.index,
+                    url=job.url,
+                    local_path=path,
+                    sha256=f"sha256:download-{job.index}",
+                    size_bytes=len(body),
+                    content_type="image/png",
+                )
+            )
+        return files
+
+    monkeypatch.setattr("msrt.scrape.adapters.mangafire.download_pages", fake_download_pages)
+
+    scraper = MangaFireScraper(
+        capture_engine=_FakeCaptureEngine(raise_error=True),
+        reader_resolver=_ShellResolver(),
+    )
+    requested = "https://mangafire.to/read/wistoria-wand-and-swordd.02n57/en/chapter-1"
+
+    result = _run(scraper.fetch(requested, tmp_path))
+
+    assert result.chapter_number == "1.1"
+    assert result.strategy == "mangafire-reader-network"
+    assert any("ch.1" in w and "ch.1.1" in w for w in result.warnings), result.warnings
+
+
 def test_mangafire_fetch_propagates_capture_error(tmp_path: Path) -> None:
     scraper = MangaFireScraper(
         capture_engine=_FakeCaptureEngine(raise_error=True),

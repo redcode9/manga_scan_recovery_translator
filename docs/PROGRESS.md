@@ -1039,32 +1039,37 @@ risalire ai 4 fallimenti l'utente ha dovuto leggere il JSON del job a
 mano.
 
 **Tier A — Resilience scraping** (must-have prima del prossimo overnight):
-- [ ] A.1 — `mangafire.py:_first_reader_payload` riscritto con `page.expect_response(predicate)`. Il context manager Playwright tiene viva la response finché il body non è letto, eliminando la race indipendentemente da redirect/navigazioni.
-- [ ] A.2 — `_RETRYABLE_STATUSES` esteso a `{520, 521, 522, 523, 524}` (Cloudflare) e `max_retries` portato a 4 con backoff esponenziale (1+2+4+8+16 = 31s totali).
-- [ ] A.3 — Trim del body HTML negli errori HTTP non retryable (`downloader.py:217`): summary tipo `[HTML 12kB, content-type=text/html]` invece di 200 char di `<!DOCTYPE html>`.
-- [ ] A.4 — Test:
-  - `tests/test_mangafire_resolver.py` (nuovo): server stub che redirige + verifica che `expect_response` legge il body anche con navigation;
-  - `tests/test_scrape_downloader.py`: caso 520 → retry → 200, e caso 520 persistente con summary HTML breve.
+- [x] A.1 — `mangafire.py:_first_reader_payload` riscritto con `page.expect_response(predicate)`. Il context manager Playwright tiene viva la response finché il body non è letto, eliminando la race indipendentemente da redirect/navigazioni.
+- [x] A.2 — `_RETRYABLE_STATUSES` esteso a `{520, 521, 522, 523, 524}` (Cloudflare); backoff esponenziale invariato.
+- [x] A.3 — Trim del body HTML negli errori HTTP non retryable: summary tipo `[HTML 12kB]` via `_summarize_error_body`.
+- [x] A.4 — Test: `test_download_pages_retries_on_cloudflare_520_then_succeeds`, `test_download_pages_summarises_html_error_body`.
 
 **Tier B — Resilience job-level**:
-- [ ] B.1 — Retry per-capitolo nel batch: `_run_url_batch_job` (UI) e `_run_all_chapters` (CLI) wrap di `_run_url_single_chapter` in retry loop con backoff (default 2 retry, opzione `--retries-per-chapter` / UI selector). Distinguere errori retryable (5xx, race) da 4xx legittimi.
-- [ ] B.2 — Sub-chapter detection: se `page.url` finale ≠ URL richiesto, riconoscere e (a) skip se sub-chapter già in coda con warning chiaro, (b) altrimenti reindirizzare il batch al sub-chapter.
-- [ ] B.3 — Test resume per failed chapters intra-job (`Retry failed` UI): copertura E2E con scraper finto.
+- [x] B.1 — Retry per-capitolo nel batch tramite `_run_chapter_with_retry` (3 attempts, backoff 5/10/20s capped at 60s, `_RETRYABLE_HINTS` distingue errori network/race da 4xx).
+- [x] B.2 — Sub-chapter detection: `MangaFireReaderPages` ora porta `observed_chapter`; `MangaFireScraper.fetch` rietichetta il `chapter_number` quando il reader serve un sub-chapter (1 → 1.1) e aggiunge un warning chiaro. Il manifest e il PDF carry il numero corretto, niente più "PDF ch.1 con contenuto 1.1".
+- [x] B.3 — Test: `test_batch_retries_retryable_chapter_failures`, `test_batch_does_not_retry_non_retryable_failures`, `test_mangafire_fetch_relabels_shell_chapter_to_actual_subchapter`.
 
 **Tier C — Osservabilità & UX overhaul**:
-- [ ] C.1 — Per-page progress nella fase translate: parsing `[render]: 45%|████▌ | 5/11` da MITR stdout, emit `Event(type="progress", current=cur, total=tot, unit=phase)`.
-- [ ] C.2 — Tabella capitoli per batch in `JobProgress`: righe con stato (queued/running/done/failed/skipped), pagine fatte/totali, errore breve.
-- [ ] C.3 — Trim errori HTML in UI con `<details>` toggle (lato frontend, complementare ad A.3 lato backend).
-- [ ] C.4 — Watchdog capitoli lenti: warning SSE se un capitolo non emette progress da > 60 min.
-- [ ] C.5 — **Dark mode default (Apple/Uber-style)**: bg `zinc-950`, surface `zinc-900`, border `zinc-800`, primary text `zinc-100`, secondary `zinc-400`, accent `sky-500` parsimonioso. Niente toggle in v0.5; l'utente preferisce dark always.
-- [ ] C.6 — **Active batch banner** in `AppShell`: pill persistente in alto con `chapters_done/total + ETA + link al job` ovunque l'utente navighi. Risolve "non capisco se c'è un batch in corso".
-- [ ] C.7 — **Manga-level progress bar**: per `kind=url_batch`, accanto al `chapters_done/total` mostrare percentuale verso "tutti i capitoli disponibili sul source" (richiede coverage endpoint, vedi C.8).
-- [ ] C.8 — **Coverage endpoint** `GET /api/chapters/coverage?url=...&out=...`: ritorna `{available: [...], on_disk: [...], missing_before: [...], missing_after: [...]}`. Usa `scraper.list_chapters` + `scan_library` + il range corrente.
-- [ ] C.9 — **Resume / gap UX in BatchPlanner**: quando l'utente lancia un batch che ha un offset (es. `--range 34-70`), la UI rileva i capitoli mancanti < 34 (es. ch.1, 8, 15 dalla notte scorsa) e chiede esplicitamente "Includere anche i 3 capitoli mancanti precedenti? [Sì/No]".
+- [x] C.1 — Per-page progress nella fase translate via watcher thread che polla `out/translated-pages/` ogni 2s ed emette `Event(type="progress", unit="pages")`.
+- [x] C.2 — Tabella capitoli per batch in `JobProgress`: righe per ogni numero esposto da coverage, status pill ridotto da manifest_paths/errors/warnings.
+- [x] C.3 — Log feed collassato dietro `<details>` di default per ridurre rumore; truncate body HTML già fatto lato A.3.
+- [x] C.4 — Watchdog stall: il page-watcher emette warning SSE se non vede nuove pagine per 15+ min (configurabile via `_STALL_THRESHOLD_SECONDS`).
+- [x] C.5 — Dark mode default (Apple/Uber-style) applicato globalmente.
+- [x] C.6 — Active batch banner persistente in `AppShell`.
+- [x] C.7 — Manga-level progress bar in `JobProgress` (chapters on-disk / available).
+- [x] C.8 — `POST /api/chapters/coverage` endpoint.
+- [x] C.9 — Gap UX in BatchPlanner: due pannelli "Includere mancanti prima/dopo del range?" con checkbox.
 
-**Tier D — Test discipline**: ogni Tier sopra include i propri test
-puntuali; aggiungo qui solo macro-coverage dei nuovi flussi
-(coverage endpoint, retry loop, dark mode visual smoke).
+**Tier D — Test discipline**:
+- [x] D.1 — Test del relabel sub-chapter (proxy del fix expect_response, copre il path "shell chapter").
+- [x] D.2 — Test retry batch (retryable + non-retryable).
+- [x] D.3 — Test coverage endpoint con range e output su disco preesistente.
+
+**Tier E — Usability polish (in chiusura per v0.5)**:
+- [x] E.1 — Dashboard `SetupStatusHero`: 3-step checklist (chiavi API, LiteLLM, MITR) con CTA inline; quando tutto verde diventa una banner "Tutto pronto" con shortcut a Nuovo job / Batch.
+- [x] E.2 — `NewJob` semplificato a 2 modi (locale, URL singolo): la modalità batch è nella pagina dedicata `/batch`, niente più ridondanza fra le due. Header con CTA "Batch su una serie →".
+- [x] E.3 — Mode switch a card descrittive con sottotesto invece di pill anonime, così l'utente capisce cosa fa ogni modalità prima di sceglierla.
+- [x] E.4 — Quick actions su Dashboard ampliate a 4 (Nuovo Job, Batch, Libreria, Setup) con icone parlanti.
 
 **Decisione operativa**: il job overnight è stato cancellato (status
 `cancelled`, `chapters_done=33, chapters_failed=5` — 4 originali + ch.33

@@ -44,11 +44,18 @@ _MANGAFIRE_BROWSER_UA = (
 
 @dataclass(frozen=True)
 class MangaFireReaderPages:
-    """Image URLs observed from MangaFire's normal reader XHR."""
+    """Image URLs observed from MangaFire's normal reader XHR.
+
+    ``observed_chapter`` carries the chapter number the reader actually
+    served — usually identical to the requested one, but on "shell"
+    chapters (e.g. ``chapter-1`` that redirects internally to
+    ``chapter-1.1``) it differs and the caller relabels the output.
+    """
 
     image_urls: list[str]
     warnings: list[str] = field(default_factory=list)
     capture_mode: str = "browser-network"
+    observed_chapter: str | None = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +108,7 @@ class MangaFireScraper(ChapterScraper):
             )
 
         network_warning: str | None = None
+        resolved: MangaFireReaderPages | None = None
         try:
             resolved = await self._reader_resolver.resolve(url)
             jobs = [
@@ -117,7 +125,24 @@ class MangaFireScraper(ChapterScraper):
         except (FetchError, DownloadError) as exc:
             network_warning = f"Reader-network MangaFire fallito ({exc}); uso browser-capture."
         else:
-            warnings = [*resolved.warnings, *find_duplicate_pages(files)]
+            # Shell-chapter detection: if the reader navigated to a
+            # different chapter than requested (e.g. ``/chapter-1`` →
+            # ``/chapter-1.1``), relabel the result so downstream
+            # manifests / output filenames reflect the actual content.
+            actual_chapter = (
+                resolved.observed_chapter
+                if resolved.observed_chapter
+                and resolved.observed_chapter != metadata.chapter_number
+                else metadata.chapter_number
+            )
+            relabel_warnings: list[str] = []
+            if actual_chapter != metadata.chapter_number:
+                relabel_warnings.append(
+                    f"MangaFire ha servito ch.{actual_chapter} sotto la URL di "
+                    f"ch.{metadata.chapter_number}: rietichetto l'output a "
+                    f"ch.{actual_chapter}."
+                )
+            warnings = [*resolved.warnings, *relabel_warnings, *find_duplicate_pages(files)]
             pages = [
                 FetchedPage(
                     index=file.index,
@@ -133,7 +158,7 @@ class MangaFireScraper(ChapterScraper):
                 raise FetchError("MangaFire reader-network non ha prodotto pagine.")
             return FetchResult(
                 series=metadata.series,
-                chapter_number=metadata.chapter_number,
+                chapter_number=actual_chapter,
                 chapter_title=None,
                 source_url=url,
                 strategy="mangafire-reader-network",
@@ -217,15 +242,19 @@ class MangaFireReaderResolver:
         self._headless = headless
 
     async def resolve(self, url: str) -> MangaFireReaderPages:
-        text = await self._first_reader_payload(
+        text, final_url = await self._first_reader_payload(
             url,
             response_path_fragment="/ajax/read/chapter/",
             error_message="MangaFire non ha emesso la risposta reader con gli URL pagina",
         )
-        return MangaFireReaderPages(image_urls=_image_urls_from_reader_payload(text))
+        observed_chapter = _chapter_number_from_href(final_url) if final_url else None
+        return MangaFireReaderPages(
+            image_urls=_image_urls_from_reader_payload(text),
+            observed_chapter=observed_chapter,
+        )
 
     async def list_chapters(self, url: str) -> MangaFireChapterIndex:
-        text = await self._first_reader_payload(
+        text, _ = await self._first_reader_payload(
             url,
             response_path_fragment="/ajax/read/",
             exclude_path_fragment="/ajax/read/chapter/",
@@ -243,7 +272,7 @@ class MangaFireReaderResolver:
         response_path_fragment: str,
         exclude_path_fragment: str | None = None,
         error_message: str,
-    ) -> str:
+    ) -> tuple[str, str | None]:
         """Wait for the first matching reader response and return its body.
 
         We use ``page.expect_response`` instead of the (older) racy
@@ -285,10 +314,12 @@ class MangaFireReaderResolver:
                 async with page.expect_response(predicate, timeout=timeout_ms) as info:
                     await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
                 response = await info.value
+                final_url = page.url
                 try:
-                    return await response.text()
+                    text = await response.text()
                 except Exception as exc:  # pragma: no cover - browser race
                     raise FetchError(f"MangaFire reader response non leggibile: {exc}") from exc
+                return text, final_url
             except PlaywrightTimeoutError as exc:
                 raise FetchError(f"{error_message} entro {timeout_ms // 1000}s.") from exc
             finally:
