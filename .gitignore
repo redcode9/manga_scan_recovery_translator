@@ -31,11 +31,15 @@ htmlcov/
 coverage.xml
 *.cover
 
-# IDE
+# IDE / editor / assistant local config
 .idea/
 .vscode/
 *.swp
+*.code-workspace
 .DS_Store
+.claude/
+.cursor/
+.aider*
 
 # Environment & secrets
 .env
@@ -50,7 +54,6 @@ output/
 *.cbz
 *.pdf
 !tests/fixtures/**/*.pdf
-!docs/**/*.pdf
 
 # Manga / scan content (never commit content not owned)
 content/
