@@ -8,7 +8,7 @@ opens in any reader.
 
 The interface is a small local web app that runs in your browser: you
 paste a series URL, the tool downloads the chapters, translates the
-bubbles with an LLM provider you choose (Claude, GPT or Gemini), and
+bubbles with an LLM provider you choose (Anthropic, OpenAI or Google), and
 shows you a Netflix-style library of covers where you can see at a
 glance what you have and what is missing.
 
@@ -139,7 +139,7 @@ Environment variables the program reads:
 |---|---|
 | `MSRT_MODEL` | Default model alias (`gpt`, `sonnet`, `opus`, `gemini-pro`, `gemini-flash`, `gpt-mini`). |
 | `OPENAI_API_KEY` | OpenAI key. |
-| `ANTHROPIC_API_KEY` | Anthropic key (Claude). |
+| `ANTHROPIC_API_KEY` | Anthropic API key. |
 | `GEMINI_API_KEY` | Google Gemini key. |
 | `MITR_BIN_PATH` | How to invoke manga-image-translator. The setup writes this. |
 | `LITELLM_PORT` | LiteLLM proxy port (default 4000). |
