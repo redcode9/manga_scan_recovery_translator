@@ -38,6 +38,7 @@ import type {
   DryRunResponse,
   JobCreate,
 } from "../lib/api";
+import { useT } from "../lib/i18n";
 import { StatusPill } from "../components/StatusPill";
 import { useToast } from "../components/Toast";
 
@@ -82,19 +83,16 @@ const LOCAL_INITIAL: LocalState = {
 };
 
 export function AddPage() {
+  const { t } = useT();
   const [mode, setMode] = useState<Mode>("url");
 
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">
-          Aggiungi un manga
+          {t("add.title")}
         </h1>
-        <p className="text-sm text-zinc-500">
-          Punta a un URL della serie o a una cartella di immagini. Se l'URL
-          è una serie completa la pagina ti farà vedere quanti capitoli
-          mancano e ti aiuterà a recuperarli.
-        </p>
+        <p className="text-sm text-zinc-500">{t("add.subtitle")}</p>
       </header>
 
       <ModeSwitch mode={mode} onChange={setMode} />

@@ -14,13 +14,24 @@ ProviderName = Literal["anthropic", "openai", "google", "local"]
 
 
 MODEL_ALIASES: dict[str, tuple[ProviderName, str, str]] = {
-    "sonnet": ("anthropic", "claude-sonnet-4-6", "ANTHROPIC_API_KEY"),
+    # Anthropic — 4.x family (May 2026 lineup).
     "opus": ("anthropic", "claude-opus-4-7", "ANTHROPIC_API_KEY"),
+    "sonnet": ("anthropic", "claude-sonnet-4-6", "ANTHROPIC_API_KEY"),
+    "haiku": ("anthropic", "claude-haiku-4-5", "ANTHROPIC_API_KEY"),
+    # OpenAI — GPT-5.5 / 5.4 family (May 2026 lineup).
+    "gpt-pro": ("openai", "gpt-5.5-pro", "OPENAI_API_KEY"),
     "gpt": ("openai", "gpt-5.5", "OPENAI_API_KEY"),
     "gpt-5": ("openai", "gpt-5", "OPENAI_API_KEY"),
     "gpt-mini": ("openai", "gpt-5-mini", "OPENAI_API_KEY"),
+    "gpt-nano": ("openai", "gpt-5.4-nano", "OPENAI_API_KEY"),
+    # Google — Gemini 2.5 + 3.x. The 3.x family ships with "-preview"
+    # API IDs in May 2026; we hide that detail behind the friendly
+    # alias so user configs don't need to change when they GA.
+    "gemini-3-pro": ("google", "gemini-3.1-pro-preview", "GEMINI_API_KEY"),
+    "gemini-3-flash": ("google", "gemini-3-flash-preview", "GEMINI_API_KEY"),
     "gemini-pro": ("google", "gemini-2.5-pro", "GEMINI_API_KEY"),
     "gemini-flash": ("google", "gemini-2.5-flash", "GEMINI_API_KEY"),
+    "gemini-flash-lite": ("google", "gemini-2.5-flash-lite", "GEMINI_API_KEY"),
 }
 
 
@@ -48,6 +59,17 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     default_model: str = Field(default="gpt", alias="MSRT_MODEL")
+    # Per-provider preferred model alias. Used by the batch fallback
+    # chain: when the primary provider hits ``insufficient_quota`` we
+    # walk through the providers that have an API key configured, each
+    # using *its* preferred alias (e.g. fall back from gpt to
+    # ``gemini-flash`` rather than to a hard-coded ``gemini-pro``).
+    # Defaults are picked for cost / latency rather than raw quality —
+    # the user can override either via env (``MSRT_MODEL_*``) or via
+    # the ``/api/setup/provider-models`` endpoint.
+    model_openai: str = Field(default="gpt-mini", alias="MSRT_MODEL_OPENAI")
+    model_anthropic: str = Field(default="haiku", alias="MSRT_MODEL_ANTHROPIC")
+    model_google: str = Field(default="gemini-flash", alias="MSRT_MODEL_GOOGLE")
     litellm_port: int = Field(default=4000, alias="LITELLM_PORT")
     mitr_bin_path: str | None = Field(default=None, alias="MITR_BIN_PATH")
     cache_dir: Path = Field(default_factory=lambda: Path.home() / ".cache" / "msrt")
@@ -57,6 +79,13 @@ class Settings(BaseSettings):
     # Setting this to ``False`` skips the chain entirely and the UI
     # falls back to the gradient placeholder.
     auto_cover_enabled: bool = Field(default=True, alias="MSRT_AUTO_COVER")
+    # UI language preference. The backend doesn't render any user-facing
+    # text itself — this is here so the frontend can read it from
+    # ``/api/settings`` on first load (faster than a separate endpoint
+    # round-trip) and so a CLI user can pin the UI language without
+    # touching localStorage. Persisted in ``.env`` via the
+    # ``/api/setup/ui-language`` endpoint.
+    ui_language: Literal["it", "en"] = Field(default="it", alias="MSRT_UI_LANG")
 
     def __init__(self, **kwargs: Any) -> None:
         # Resolve the ``.env`` location lazily so that
@@ -76,6 +105,22 @@ class Settings(BaseSettings):
             "OPENAI_API_KEY": self.openai_api_key,
             "GEMINI_API_KEY": self.gemini_api_key,
         }.get(env_name)
+
+    def model_for_provider(self, provider: ProviderName | None) -> str | None:
+        """Return the user's preferred model alias for ``provider``.
+
+        Used by the fallback chain when switching from one provider to
+        another mid-batch: we don't want to pick a hard-coded default
+        when the user has expressed a preference (e.g. wants
+        ``gemini-flash`` rather than ``gemini-pro``)."""
+
+        if provider == "openai":
+            return self.model_openai
+        if provider == "anthropic":
+            return self.model_anthropic
+        if provider == "google":
+            return self.model_google
+        return None
 
 
 def resolve_model_alias(alias: str) -> tuple[ProviderName | None, str, str | None]:

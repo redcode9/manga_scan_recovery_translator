@@ -280,6 +280,11 @@ class SettingsView(BaseModel):
     """
 
     default_model: str
+    # Per-provider preferred model alias (used by the batch fallback
+    # chain when the primary provider runs out of quota).
+    model_openai: str
+    model_anthropic: str
+    model_google: str
     litellm_port: int
     litellm_base_url: str
     cache_dir: str
@@ -288,6 +293,7 @@ class SettingsView(BaseModel):
     has_openai_key: bool
     has_gemini_key: bool
     auto_cover_enabled: bool
+    ui_language: Literal["it", "en"]
 
 
 class HealthResponse(BaseModel):

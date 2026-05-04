@@ -6,7 +6,7 @@ import { Dashboard } from "../pages/Dashboard";
 import { JobProgressPage } from "../pages/JobProgress";
 import { LibraryPage } from "../pages/Library";
 import { LogsPage } from "../pages/Logs";
-import { SettingsPage } from "../pages/Settings";
+import { SettingsPage } from "../pages/settings";
 
 export const router = createBrowserRouter([
   {

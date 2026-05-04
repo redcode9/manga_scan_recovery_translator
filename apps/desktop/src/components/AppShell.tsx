@@ -21,28 +21,32 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../lib/api";
 import type { Job } from "../lib/api";
+import { useT, type TranslationKey } from "../lib/i18n";
 import { LogoMark } from "./Logo";
 import { StatusPill } from "./StatusPill";
 
 interface NavItem {
   to: string;
-  label: string;
+  /** i18n key resolved at render time so the sidebar updates live
+   * when the user switches language. */
+  labelKey: TranslationKey;
   icon: ReactNode;
 }
 
-// Five entries — every redundant pair (Setup/Impostazioni,
-// Nuovo Job/Batch) merged. Order = frequency of use.
+// Five entries — every redundant pair (Setup/Settings,
+// New Job/Batch) merged. Order = frequency of use.
 const NAV_ITEMS: NavItem[] = [
-  { to: "/", label: "Libreria", icon: <Gauge size={18} /> },
-  { to: "/add", label: "Aggiungi manga", icon: <Plus size={18} /> },
-  { to: "/library", label: "Tutti i capitoli", icon: <Library size={18} /> },
-  { to: "/logs", label: "Attività", icon: <ScrollText size={18} /> },
-  { to: "/settings", label: "Impostazioni", icon: <Settings size={18} /> },
+  { to: "/", labelKey: "nav.home", icon: <Gauge size={18} /> },
+  { to: "/add", labelKey: "nav.add", icon: <Plus size={18} /> },
+  { to: "/library", labelKey: "nav.library", icon: <Library size={18} /> },
+  { to: "/logs", labelKey: "nav.activity", icon: <ScrollText size={18} /> },
+  { to: "/settings", labelKey: "nav.settings", icon: <Settings size={18} /> },
 ];
 
 const ACTIVE_STATUSES = new Set<Job["status"]>(["queued", "running"]);
 
 export function AppShell() {
+  const { t } = useT();
   const navigation = useNavigation();
   // Poll the jobs list every 4s so the active-batch banner reflects
   // reality without forcing the user to open JobProgress.
@@ -56,11 +60,11 @@ export function AppShell() {
   return (
     <div className="flex w-full bg-zinc-950 text-zinc-100">
       <a href="#main-content" className="skip-link">
-        Vai al contenuto
+        {t("nav.skipToContent")}
       </a>
       <aside
         className="w-60 shrink-0 border-r border-white/5 bg-zinc-950/60 backdrop-blur-sm"
-        aria-label="Navigazione principale"
+        aria-label={t("nav.primaryAriaLabel")}
       >
         <Link
           to="/"
@@ -68,7 +72,7 @@ export function AppShell() {
         >
           <LogoMark size={36} />
         </Link>
-        <nav className="flex flex-col gap-0.5 px-2" aria-label="Sezioni">
+        <nav className="flex flex-col gap-0.5 px-2" aria-label={t("nav.sections")}>
           {NAV_ITEMS.map((item) => (
             <NavLink
               key={item.to}
@@ -84,7 +88,7 @@ export function AppShell() {
               aria-current={undefined}
             >
               {item.icon}
-              <span>{item.label}</span>
+              <span>{t(item.labelKey)}</span>
             </NavLink>
           ))}
         </nav>
@@ -107,6 +111,7 @@ function Header({
   navigating: boolean;
   activeJob: Job | undefined;
 }) {
+  const { t } = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const server = useQuery({
     queryKey: ["server-status"],
@@ -120,29 +125,34 @@ function Header({
       ? "warn"
       : "fail";
 
+  const litellmLabel = server.data
+    ? server.data.healthy
+      ? t("proxy.running")
+      : server.data.running
+        ? t("proxy.unhealthy")
+        : t("proxy.stopped")
+    : t("common.unknown");
+
   return (
     <header className="border-b border-white/5 bg-zinc-950/80 backdrop-blur">
       <div className="flex items-center justify-between px-8 py-3">
         <div className="text-sm text-zinc-500">
-          {navigating ? "Caricamento…" : "Pronto"}
+          {navigating ? t("common.loading") : t("common.ready")}
         </div>
         <div className="flex items-center gap-2">
           <StatusPill tone={litellmTone}>
             <span className={`inline-block h-1.5 w-1.5 rounded-full bg-current ${litellmTone === "ok" ? "msrt-pulse" : ""}`} />
-            LiteLLM:{" "}
-            {server.data
-              ? server.data.healthy
-                ? "running"
-                : server.data.running
-                  ? "unhealthy"
-                  : "stopped"
-              : "?"}
+            {t("proxy.label")}: {litellmLabel}
           </StatusPill>
           <StatusPill tone={settings.data?.mitr_bin_path ? "ok" : "warn"}>
-            MITR: {settings.data?.mitr_bin_path ? "configurato" : "mancante"}
+            {t("proxy.mitrLabel")}:{" "}
+            {settings.data?.mitr_bin_path
+              ? t("proxy.mitrConfigured")
+              : t("proxy.mitrMissing")}
           </StatusPill>
           <StatusPill tone="info">
-            model: {settings.data?.default_model ?? "?"}
+            {t("proxy.modelLabel")}:{" "}
+            {settings.data?.default_model ?? t("common.unknown")}
           </StatusPill>
         </div>
       </div>
@@ -152,14 +162,15 @@ function Header({
 }
 
 function ActiveJobBanner({ job }: { job: Job }) {
+  const { t } = useT();
   const total = job.chapters_total || 1;
   const done = job.chapters_done;
   const failed = job.chapters_failed;
   const pct = Math.min(100, Math.round((done / total) * 100));
   const isBatch = job.kind === "url_batch";
   const label = isBatch
-    ? `Batch in corso · ${done}/${total} capitoli`
-    : `Job in corso · fase ${job.current_phase}`;
+    ? t("banner.batchInProgress", { done, total })
+    : t("banner.jobInProgress", { phase: job.current_phase });
 
   return (
     <Link
@@ -181,9 +192,14 @@ function ActiveJobBanner({ job }: { job: Job }) {
           </div>
         </div>
         <span className="font-mono text-xs text-zinc-400">
-          {pct}% {failed > 0 && <span className="text-rose-300">· {failed} falliti</span>}
+          {pct}%{" "}
+          {failed > 0 && (
+            <span className="text-rose-300">
+              · {t("banner.failedSuffix", { count: failed })}
+            </span>
+          )}
         </span>
-        <span className="text-xs text-zinc-500">apri →</span>
+        <span className="text-xs text-zinc-500">{t("banner.open")}</span>
       </div>
     </Link>
   );

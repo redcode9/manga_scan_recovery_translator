@@ -27,6 +27,7 @@ from msrt.models import ManifestFetch, RunManifest, TranslationJob
 from msrt.paths import litellm_config_path
 from msrt.pipeline import (
     PhaseCallback,
+    QuotaExhaustedError,
     collect_local_chapter,
     package_outputs,
     run_local,
@@ -801,6 +802,15 @@ def _run_all_chapters(
                 site=site,
                 manifest_name=manifest_name,
             )
+        except QuotaExhaustedError as exc:
+            # Provider quota is global: every remaining chapter would
+            # fail identically. Abort the batch even with
+            # ``--continue-on-error``; skip_existing on the retry will
+            # resume from this chapter once the user tops up.
+            failures.append((chapter, str(exc)))
+            console.print(f"[red]Errore capitolo {label}:[/red] {exc}")
+            console.print("[red]Batch interrotto:[/red] quota esaurita, niente da continuare.")
+            raise typer.Exit(code=1) from exc
         except Exception as exc:
             failures.append((chapter, str(exc)))
             console.print(f"[red]Errore capitolo {label}:[/red] {exc}")

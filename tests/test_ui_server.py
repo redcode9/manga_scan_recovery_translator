@@ -1043,3 +1043,450 @@ def test_retry_failed_rejects_jobs_without_failed_chapters(
 
     assert retry.status_code == 409
     assert "fallito" in retry.json()["detail"].lower()
+
+
+# ----------------------------------------------------------------------------
+# Provider fallback chain on quota exhaustion
+# ----------------------------------------------------------------------------
+
+
+def test_fallback_chain_uses_per_provider_preferred_alias(
+    isolated_settings: Settings,
+) -> None:
+    """The chain starts with the user's primary alias and then expands
+    with each *other* provider's preferred alias from Settings — not a
+    hard-coded gemini-pro / sonnet / gpt fallback. Only providers with a
+    configured API key are included."""
+
+    from msrt.ui_server.commands import _build_provider_fallback_chain
+
+    object.__setattr__(isolated_settings, "openai_api_key", "sk-fake-openai")
+    object.__setattr__(isolated_settings, "anthropic_api_key", None)
+    object.__setattr__(isolated_settings, "gemini_api_key", "fake-gemini")
+    object.__setattr__(isolated_settings, "model_google", "gemini-flash")
+
+    chain = _build_provider_fallback_chain(primary="gpt", settings=isolated_settings)
+    assert chain == ["gpt", "gemini-flash"]
+
+
+def test_fallback_chain_skips_providers_without_keys(
+    isolated_settings: Settings,
+) -> None:
+    """No keys configured for the secondary providers → chain has only
+    the primary (no point pretending we can fall back to a key we
+    don't have)."""
+
+    from msrt.ui_server.commands import _build_provider_fallback_chain
+
+    object.__setattr__(isolated_settings, "openai_api_key", "sk-fake")
+    object.__setattr__(isolated_settings, "anthropic_api_key", None)
+    object.__setattr__(isolated_settings, "gemini_api_key", None)
+
+    chain = _build_provider_fallback_chain(primary="gpt", settings=isolated_settings)
+    assert chain == ["gpt"]
+
+
+def test_run_chapter_through_providers_falls_back_on_quota(
+    isolated_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the first model in the chain raises ``QuotaExhaustedError``
+    we should *not* surface the error: the function should swap to the
+    second model and retry the same chapter URL. The ``options.model``
+    seen by the inner runner must change between attempts so the engine
+    actually picks up the new alias."""
+
+    from msrt.pipeline import QuotaExhaustedError
+    from msrt.ui_server import commands as commands_module
+    from msrt.ui_server.schemas import JobOptions
+
+    seen_models: list[str] = []
+
+    async def fake_with_retry(
+        ctx,  # type: ignore[no-untyped-def]
+        site_name: str,
+        url: str,
+        *,
+        chapter_number: str,
+    ) -> None:
+        seen_models.append(ctx.job.request.options.model)
+        if len(seen_models) == 1:
+            raise QuotaExhaustedError("Quota OpenAI esaurita (HTTP 429 insufficient_quota)")
+        # Second attempt: success
+        return None
+
+    monkeypatch.setattr(commands_module, "_run_chapter_with_retry", fake_with_retry)
+
+    options = JobOptions(model="gpt")
+    request_obj = type("R", (), {"options": options})
+    ctx = type(
+        "C",
+        (),
+        {
+            "job": type("J", (), {"id": "test", "request": request_obj})(),
+            "emit": lambda self, _e: asyncio.sleep(0),
+        },
+    )()
+
+    asyncio.run(
+        commands_module._run_chapter_through_providers(
+            ctx,  # type: ignore[arg-type]
+            "fakemd",
+            "https://fake/c-1",
+            chapter_number="1",
+            fallback_chain=["gpt", "gemini-flash"],
+        )
+    )
+
+    assert seen_models == ["gpt", "gemini-flash"]
+
+
+def test_run_url_single_job_falls_back_on_quota(
+    isolated_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A *single*-URL job (not batch) must also walk the fallback chain
+    when the primary provider raises ``QuotaExhaustedError``. We mock
+    the scraper, ``_invoke_run_local`` and the broker so the test can
+    assert the chain is exercised without touching network or MITR."""
+
+    from msrt.models import ManifestEngine, ManifestInput, ManifestModel
+    from msrt.pipeline import QuotaExhaustedError
+    from msrt.scrape.base import FetchedPage, FetchResult
+    from msrt.ui_server import commands as commands_module
+
+    object.__setattr__(isolated_settings, "openai_api_key", "sk-fake-openai")
+    object.__setattr__(isolated_settings, "gemini_api_key", "fake-gemini")
+    object.__setattr__(isolated_settings, "model_google", "gemini-flash")
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    class FakeScraper:
+        name = "fakemd"
+
+        async def fetch(self, _u: str, output_dir: Path) -> FetchResult:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            page_path = output_dir / "001.png"
+            page_path.write_bytes(b"")
+            return FetchResult(
+                series="Fake",
+                chapter_number="1",
+                chapter_title=None,
+                source_url="https://fake/c-1",
+                strategy="reader",
+                pages=[
+                    FetchedPage(
+                        index=1,
+                        url="https://fake/p1.png",
+                        local_path=page_path,
+                        sha256="sha256:test",
+                        content_type="image/png",
+                        size_bytes=0,
+                    )
+                ],
+                output_dir=output_dir,
+                warnings=[],
+                capture_mode=None,
+                viewport=None,
+                device_scale_factor=None,
+                manual_intervention=False,
+            )
+
+    monkeypatch.setattr(
+        commands_module, "scraper_for_url", lambda _u, site="auto": FakeScraper()
+    )
+    monkeypatch.setattr(commands_module, "Settings", lambda: isolated_settings)
+
+    seen_models: list[str] = []
+
+    def fake_invoke(
+        ctx,  # type: ignore[no-untyped-def]
+        *,
+        loop,  # type: ignore[no-untyped-def]
+        input_dir,  # type: ignore[no-untyped-def]
+        out_dir,  # type: ignore[no-untyped-def]
+        series: str,
+        chapter_number: str,
+        chapter_title,  # type: ignore[no-untyped-def]
+        options,  # type: ignore[no-untyped-def]
+        job,  # type: ignore[no-untyped-def]
+        fetch_metadata,  # type: ignore[no-untyped-def]
+        input_type: str,
+        input_url: str,
+        manifest_name=None,  # type: ignore[no-untyped-def]
+    ):
+        seen_models.append(options.model)
+        if len(seen_models) == 1:
+            raise QuotaExhaustedError(
+                "Quota OpenAI esaurita (HTTP 429 insufficient_quota)"
+            )
+        return RunManifest(
+            msrt_version="test",
+            command="fake",
+            input=ManifestInput(type="url", path=None, url=input_url, page_count=1),
+            page_order=["001.png"],
+            page_hashes={"001.png": "sha256:test"},
+            model=ManifestModel(
+                alias=options.model,
+                resolved_id="resolved",
+                provider="google",
+            ),
+            engine=ManifestEngine(type="subprocess"),
+            output_files=[],
+            metadata={
+                "series": series,
+                "chapter": chapter_number,
+                "language_target": options.lang_target,
+            },
+        )
+
+    monkeypatch.setattr(commands_module, "_invoke_run_local", fake_invoke)
+
+    with _client(isolated_settings) as client:
+        created_resp = client.post(
+            "/api/jobs",
+            json={
+                "kind": "url",
+                "input_url": "https://fake/c-1",
+                "out_dir": str(out_dir),
+                "i_own_rights": True,
+                "options": {"format": "pdf", "model": "gpt"},
+            },
+        )
+        assert created_resp.status_code in (200, 201), created_resp.text
+        created = created_resp.json()
+        for _ in range(40):
+            final = client.get(f"/api/jobs/{created['id']}").json()
+            if final["status"] not in {"queued", "running"}:
+                break
+            asyncio.run(asyncio.sleep(0.05))
+
+    assert final["status"] == "succeeded", final
+    assert seen_models == ["gpt", "gemini-flash"]
+
+
+def test_run_chapter_through_providers_raises_when_all_exhausted(
+    isolated_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If every provider in the chain returns ``QuotaExhaustedError``,
+    the function must re-raise so the batch loop aborts the whole run."""
+
+    from msrt.pipeline import QuotaExhaustedError
+    from msrt.ui_server import commands as commands_module
+    from msrt.ui_server.schemas import JobOptions
+
+    async def always_quota(
+        ctx,  # type: ignore[no-untyped-def]
+        site_name: str,
+        url: str,
+        *,
+        chapter_number: str,
+    ) -> None:
+        raise QuotaExhaustedError("insufficient_quota")
+
+    monkeypatch.setattr(commands_module, "_run_chapter_with_retry", always_quota)
+
+    options = JobOptions(model="gpt")
+    request_obj = type("R", (), {"options": options})
+    ctx = type(
+        "C",
+        (),
+        {
+            "job": type("J", (), {"id": "test", "request": request_obj})(),
+            "emit": lambda self, _e: asyncio.sleep(0),
+        },
+    )()
+
+    with pytest.raises(QuotaExhaustedError, match="Tutti i provider"):
+        asyncio.run(
+            commands_module._run_chapter_through_providers(
+                ctx,  # type: ignore[arg-type]
+                "fakemd",
+                "https://fake/c-1",
+                chapter_number="1",
+                fallback_chain=["gpt", "gemini-flash"],
+            )
+        )
+
+
+# ----------------------------------------------------------------------------
+# Provider model preferences endpoint
+# ----------------------------------------------------------------------------
+
+
+def test_boot_time_proxy_realign_restarts_running_proxy(
+    isolated_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If a LiteLLM proxy is already running when the backend boots —
+    typical for a "user saved a key, then quit the app, then reopened
+    it" flow — the boot must restart it so the subprocess re-snapshots
+    the now-hydrated env."""
+
+    from msrt.server import ServerStatus
+    from msrt.ui_server import app as app_module
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        app_module,
+        "hydrate_process_env",
+        lambda env_path: calls.append("hydrate"),
+    )
+
+    def fake_status(_s):  # type: ignore[no-untyped-def]
+        return ServerStatus(
+            running=True, pid=12345, healthy=True, message="up"
+        )
+
+    def fake_stop(_s, **_kw):  # type: ignore[no-untyped-def]
+        calls.append("stop")
+        return True
+
+    def fake_start(_s, _cfg, **_kw):  # type: ignore[no-untyped-def]
+        calls.append("start")
+        return ServerStatus(running=True, pid=99999, healthy=True, message="up")
+
+    monkeypatch.setattr("msrt.server.litellm_status", fake_status)
+    monkeypatch.setattr("msrt.server.stop_litellm", fake_stop)
+    monkeypatch.setattr("msrt.server.start_litellm", fake_start)
+
+    app_module._maybe_realign_proxy_env(isolated_settings)
+    assert calls == ["stop", "start"]
+
+
+def test_boot_time_proxy_realign_skips_when_not_running(
+    isolated_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No proxy → nothing to do. Don't try to start one for the user."""
+
+    from msrt.server import ServerStatus
+    from msrt.ui_server import app as app_module
+
+    calls: list[str] = []
+
+    def fake_status(_s):  # type: ignore[no-untyped-def]
+        return ServerStatus(running=False, pid=None, healthy=False, message="down")
+
+    monkeypatch.setattr("msrt.server.litellm_status", fake_status)
+    monkeypatch.setattr(
+        "msrt.server.stop_litellm",
+        lambda *_a, **_k: calls.append("stop") or True,
+    )
+    monkeypatch.setattr(
+        "msrt.server.start_litellm",
+        lambda *_a, **_k: calls.append("start") or None,
+    )
+
+    app_module._maybe_realign_proxy_env(isolated_settings)
+    assert calls == []
+
+
+def test_boot_cleanup_prunes_orphan_pending_fetch_dirs(tmp_path: Path) -> None:
+    """``out/.msrt-fetch/<adapter>/_pending-<id>`` from a backend killed
+    mid-fetch must be pruned at boot. Fresh ones (just created) stay,
+    so we don't yank the rug from under a sibling msrt instance."""
+
+    import os
+    import time
+
+    from msrt.ui_server import app as app_module
+
+    fetch_root = tmp_path / ".msrt-fetch" / "fakeadapter"
+    fetch_root.mkdir(parents=True)
+    stale = fetch_root / "_pending-deadbeef"
+    fresh = fetch_root / "_pending-cafefoo"
+    real_dir = fetch_root / "actual-series"  # NOT a _pending-* dir
+    for d in (stale, fresh, real_dir):
+        d.mkdir()
+    # Backdate the stale dir well past the threshold.
+    old = time.time() - (app_module._PENDING_DIR_MAX_AGE_SECONDS + 60)
+    os.utime(stale, (old, old))
+
+    removed = app_module._cleanup_orphan_fetch_dirs(tmp_path)
+
+    assert removed == 1
+    assert not stale.exists()
+    assert fresh.exists()
+    assert real_dir.exists()
+
+
+def test_boot_cleanup_prunes_old_tmp_files(tmp_path: Path) -> None:
+    """``out/.msrt-tmp/`` accumulates ``mitr.log`` and rendered configs
+    from past runs. The latest run rewrites them, so anything older
+    than the cutoff is dead weight and safe to drop."""
+
+    import os
+    import time
+
+    from msrt.ui_server import app as app_module
+
+    tmp_dir = tmp_path / ".msrt-tmp"
+    tmp_dir.mkdir()
+    stale = tmp_dir / "mitr.log"
+    fresh = tmp_dir / "msrt-gpt-config-new.yaml"
+    stale.write_text("old log", encoding="utf-8")
+    fresh.write_text("fresh", encoding="utf-8")
+    old = time.time() - (app_module._TMP_FILE_MAX_AGE_SECONDS + 60)
+    os.utime(stale, (old, old))
+
+    removed = app_module._cleanup_old_tmp_files(tmp_path)
+
+    assert removed == 1
+    assert not stale.exists()
+    assert fresh.exists()
+
+
+def test_provider_models_endpoint_persists_and_validates(
+    isolated_settings: Settings, tmp_path: Path
+) -> None:
+    """``POST /api/setup/provider-models`` should accept a per-provider
+    alias, validate it against ``MODEL_ALIASES``, and persist it both
+    in ``Settings`` and in the project ``.env``. ``GET /api/settings``
+    must then surface the new value."""
+
+    with _client(isolated_settings) as client:
+        response = client.post(
+            "/api/setup/provider-models",
+            json={"google": "gemini-flash", "anthropic": "sonnet"},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["model_google"] == "gemini-flash"
+        assert body["model_anthropic"] == "sonnet"
+
+        view = client.get("/api/settings").json()
+        assert view["model_google"] == "gemini-flash"
+        assert view["model_anthropic"] == "sonnet"
+
+
+def test_provider_models_endpoint_rejects_cross_provider_alias(
+    isolated_settings: Settings,
+) -> None:
+    """``openai="gemini-flash"`` is a user mistake we want to catch with
+    a 400 rather than silently accept and break the fallback chain."""
+
+    with _client(isolated_settings) as client:
+        response = client.post(
+            "/api/setup/provider-models",
+            json={"openai": "gemini-flash"},
+        )
+    assert response.status_code == 400
+    assert "google" in response.json()["detail"]
+
+
+def test_provider_models_endpoint_rejects_unknown_alias(
+    isolated_settings: Settings,
+) -> None:
+    """Unknown alias → 400 with the list of accepted aliases."""
+
+    with _client(isolated_settings) as client:
+        response = client.post(
+            "/api/setup/provider-models",
+            json={"openai": "gpt-7-superdeluxe"},
+        )
+    assert response.status_code == 400
+    assert "non riconosciuto" in response.json()["detail"]

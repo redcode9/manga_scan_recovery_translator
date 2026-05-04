@@ -43,6 +43,9 @@ def settings_view(settings: Settings | None = None) -> SettingsView:
     s = settings or Settings()
     return SettingsView(
         default_model=s.default_model,
+        model_openai=s.model_openai,
+        model_anthropic=s.model_anthropic,
+        model_google=s.model_google,
         litellm_port=s.litellm_port,
         litellm_base_url=s.litellm_base_url,
         cache_dir=str(s.cache_dir),
@@ -51,4 +54,5 @@ def settings_view(settings: Settings | None = None) -> SettingsView:
         has_openai_key=bool(s.openai_api_key) or _keychain_has("OPENAI_API_KEY"),
         has_gemini_key=bool(s.gemini_api_key) or _keychain_has("GEMINI_API_KEY"),
         auto_cover_enabled=s.auto_cover_enabled,
+        ui_language=s.ui_language,
     )

@@ -85,6 +85,10 @@ export interface JobList {
 
 export interface SettingsView {
   default_model: string;
+  /** Per-provider preferred model alias used by the fallback chain. */
+  model_openai: string;
+  model_anthropic: string;
+  model_google: string;
   litellm_port: number;
   litellm_base_url: string;
   cache_dir: string;
@@ -93,6 +97,8 @@ export interface SettingsView {
   has_openai_key: boolean;
   has_gemini_key: boolean;
   auto_cover_enabled: boolean;
+  /** Persisted UI language, mirrored from MSRT_UI_LANG. */
+  ui_language: "it" | "en";
 }
 
 export type SecretName =
@@ -114,6 +120,19 @@ export interface SetupTestResult {
 
 export interface DefaultModelResponse {
   default_model: string;
+}
+
+export interface ProviderModelsRequest {
+  openai?: string;
+  anthropic?: string;
+  google?: string;
+}
+
+export interface ProviderModelsResponse {
+  model_openai: string;
+  model_anthropic: string;
+  model_google: string;
+  message: string;
 }
 
 export interface DoctorCheckView {
@@ -295,6 +314,16 @@ export const api = {
     request<{ auto_cover_enabled: boolean }>("/api/setup/auto-cover", {
       method: "POST",
       body: JSON.stringify({ enabled }),
+    }),
+  setProviderModels: (body: ProviderModelsRequest) =>
+    request<ProviderModelsResponse>("/api/setup/provider-models", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  setUiLanguage: (language: "it" | "en") =>
+    request<{ ui_language: "it" | "en" }>("/api/setup/ui-language", {
+      method: "POST",
+      body: JSON.stringify({ language }),
     }),
 
   dryRun: (body: DryRunRequest) =>

@@ -332,6 +332,56 @@ def _write_mitr_log(log_dir: Path, stdout: str, stderr: str) -> Path:
     return log_path
 
 
+class QuotaExhaustedError(RuntimeError):
+    """Raised when the upstream LLM provider has reported that the user's
+    quota is exhausted (HTTP 429 + ``insufficient_quota``).
+
+    Distinct from a generic translation failure because *every* subsequent
+    chapter in a batch will fail identically until the user tops up their
+    plan. Batch loops must abort on this exception even when the user has
+    asked to ``--continue-on-error``: silently grinding through 50 more
+    chapters of fetch + 0 translations is not "tolerating an error", it is
+    burning the user's evening.
+    """
+
+
+# Patterns that uniquely identify a "you're out of quota" error in MITR's
+# captured stderr. Conservative on purpose: every entry must be specific
+# enough that we'd rather miss a quota error than misclassify a transient
+# rate-limit (which the upstream library can recover from on its own).
+_QUOTA_EXHAUSTED_HINTS: tuple[str, ...] = (
+    "insufficient_quota",
+    "exceeded your current quota",
+    "check your plan and billing details",
+)
+
+
+def _detect_provider_quota_error(stderr: str) -> str | None:
+    """Return a user-facing Italian message if MITR's stderr signals
+    upstream-quota exhaustion, else ``None``.
+
+    MITR runs as a subprocess via ``custom_openai`` → litellm → OpenAI.
+    When OpenAI replies ``429 insufficient_quota`` the exception bubbles
+    up *inside* MITR but the subprocess still exits 0 with an empty
+    output dir. Without this detector the pipeline only ever surfaces a
+    generic "MITR non ha prodotto N pagine attese" — true but useless,
+    because the user has to crack open the MITR log to find the real
+    cause and the batch loop has no way to know all subsequent chapters
+    are doomed.
+    """
+
+    if not stderr:
+        return None
+    if not any(hint in stderr for hint in _QUOTA_EXHAUSTED_HINTS):
+        return None
+    return (
+        "Quota OpenAI esaurita (HTTP 429 insufficient_quota): MITR non "
+        "riesce più a tradurre. Ricarica il piano OpenAI e ri-esegui — "
+        "i capitoli già completati verranno saltati grazie a "
+        "skip_existing."
+    )
+
+
 def translate_only(
     image_dir: Path,
     out_dir: Path,
@@ -396,6 +446,9 @@ def translate_only(
     try:
         result = engine.translate(image_dir, translated_dir, job)
         _write_mitr_log(log_dir, result.stdout, result.stderr)
+        quota_msg = _detect_provider_quota_error(result.stderr)
+        if quota_msg is not None:
+            raise QuotaExhaustedError(quota_msg)
         for page in chapter.pages:
             candidate = translated_dir / page.local_path.name
             if candidate.exists():
@@ -497,6 +550,9 @@ def run_local(
     try:
         result = engine.translate(image_dir, translated_dir, job)
         _write_mitr_log(log_dir, result.stdout, result.stderr)
+        quota_msg = _detect_provider_quota_error(result.stderr)
+        if quota_msg is not None:
+            raise QuotaExhaustedError(quota_msg)
         for page in chapter.pages:
             candidate = translated_dir / page.local_path.name
             if candidate.exists():

@@ -24,6 +24,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { useT } from "../lib/i18n";
+
 type ToastTone = "success" | "error" | "info" | "warn";
 
 interface Toast {
@@ -49,6 +51,7 @@ interface ToastApi {
 const ToastContext = createContext<ToastApi | null>(null);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useT();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const idRef = useRef(0);
 
@@ -80,10 +83,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         className="pointer-events-none fixed bottom-4 right-4 z-[1000] flex w-full max-w-sm flex-col gap-2"
         role="region"
         aria-live="polite"
-        aria-label="Notifiche"
+        aria-label={t("toast.info")}
       >
-        {toasts.map((t) => (
-          <ToastItem key={t.id} toast={t} onDismiss={() => dismiss(t.id)} />
+        {toasts.map((entry) => (
+          <ToastItem
+            key={entry.id}
+            toast={entry}
+            onDismiss={() => dismiss(entry.id)}
+          />
         ))}
       </div>
     </ToastContext.Provider>
@@ -147,14 +154,21 @@ function ToastItem({
           <p className="mt-0.5 text-xs opacity-80">{toast.description}</p>
         )}
       </div>
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label="Chiudi notifica"
-        className="rounded-md p-1 text-current opacity-70 transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
-      >
-        <X size={14} />
-      </button>
+      <DismissButton onDismiss={onDismiss} />
     </div>
+  );
+}
+
+function DismissButton({ onDismiss }: { onDismiss: () => void }) {
+  const { t } = useT();
+  return (
+    <button
+      type="button"
+      onClick={onDismiss}
+      aria-label={t("common.close")}
+      className="rounded-md p-1 text-current opacity-70 transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+    >
+      <X size={14} />
+    </button>
   );
 }

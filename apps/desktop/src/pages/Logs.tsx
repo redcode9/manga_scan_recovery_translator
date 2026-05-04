@@ -14,11 +14,13 @@ import { api } from "../lib/api";
 import type { Job, JobStatus } from "../lib/api";
 import { useJobEvents } from "../lib/events";
 import { formatTimestamp } from "../lib/format";
+import { useT } from "../lib/i18n";
 import { StatusPill } from "../components/StatusPill";
 
 const STATUS_ORDER: JobStatus[] = ["running", "queued", "succeeded", "failed", "cancelled"];
 
 export function LogsPage() {
+  const { t } = useT();
   const jobs = useQuery({
     queryKey: ["jobs"],
     queryFn: api.jobs,
@@ -43,11 +45,10 @@ export function LogsPage() {
     <div className="space-y-6">
       <header className="flex items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Log</h1>
-          <p className="text-sm text-zinc-500">
-            Eventi SSE per ogni job. Clicca un job a sinistra per
-            seguirne il flusso.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t("logs.title")}
+          </h1>
+          <p className="text-sm text-zinc-500">{t("logs.subtitle")}</p>
         </div>
         <button
           type="button"
@@ -55,7 +56,7 @@ export function LogsPage() {
           className="inline-flex items-center gap-1 rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:bg-white/15"
         >
           <RefreshCcw size={14} />
-          Aggiorna
+          {t("common.retry")}
         </button>
       </header>
 

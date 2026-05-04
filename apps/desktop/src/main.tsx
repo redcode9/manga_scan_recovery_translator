@@ -5,6 +5,7 @@ import { RouterProvider } from "react-router-dom";
 
 import { router } from "./app/routes";
 import { ToastProvider } from "./components/Toast";
+import { LanguageProvider } from "./lib/i18n";
 import "./index.css";
 
 // Conservative defaults for a local backend: short refetch intervals
@@ -28,9 +29,11 @@ if (!rootElement) {
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <RouterProvider router={router} />
-      </ToastProvider>
+      <LanguageProvider>
+        <ToastProvider>
+          <RouterProvider router={router} />
+        </ToastProvider>
+      </LanguageProvider>
     </QueryClientProvider>
   </React.StrictMode>,
 );

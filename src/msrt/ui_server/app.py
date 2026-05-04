@@ -21,6 +21,7 @@ Tauri shell or used by a local browser tab, not exposed to a LAN.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import platform
 import re
@@ -87,18 +88,196 @@ from msrt.ui_server.setup_api import (
     DefaultModelRequest,
     DefaultModelResponse,
     DeleteKeyRequest,
+    ProviderModelsRequest,
+    ProviderModelsResponse,
     SaveKeyRequest,
     SecretReportResponse,
     SetupTestResult,
     TestKeyRequest,
+    UiLanguageRequest,
+    UiLanguageResponse,
     remove_api_key,
     save_api_key,
     smoke_test_provider,
     update_auto_cover,
     update_default_model,
+    update_provider_models,
+    update_ui_language,
 )
 
 _LOG = logging.getLogger(__name__)
+
+
+def _maybe_realign_proxy_env(settings: Settings) -> None:
+    """Restart a leftover LiteLLM proxy so it sees the current env.
+
+    Why this exists: the proxy is a separate subprocess whose env is
+    snapshotted at start time. A common scenario is "proxy started in
+    session N with no Gemini key; user saves the key; session N+1
+    boots; proxy is still up from session N and has no Gemini key".
+    The setup_api save-key path already handles the in-session case;
+    this covers the cross-session one. Best-effort only.
+    """
+
+    from msrt.paths import litellm_config_path
+    from msrt.server import (
+        LiteLLMUnavailableError,
+        litellm_status,
+        start_litellm,
+        stop_litellm,
+    )
+
+    try:
+        status = litellm_status(settings)
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOG.warning("Boot-time proxy status check failed: %s", exc)
+        return
+    if not status.running:
+        return
+    _LOG.info("Boot-time proxy realign: stopping PID %s to refresh env", status.pid)
+    try:
+        stop_litellm(settings)
+        start_litellm(settings, litellm_config_path())
+    except (LiteLLMUnavailableError, FileNotFoundError, RuntimeError) as exc:
+        _LOG.warning("Boot-time proxy realign failed: %s", exc)
+
+
+# Pending-fetch directories older than this are considered orphans
+# from a previous interrupted run and safe to remove. 1 hour is plenty:
+# even a slow Cloudflare-protected scrape finishes in well under that.
+_PENDING_DIR_MAX_AGE_SECONDS = 3600
+
+# .msrt-tmp files older than this are deleted at boot. They're
+# scratch (gpt-config rendered with glossary, MITR log) and the latest
+# run always rewrites them, so an old file is dead weight.
+_TMP_FILE_MAX_AGE_SECONDS = 6 * 3600
+
+
+def _cleanup_orphan_fetch_dirs(out_dir: Path) -> int:
+    """Remove ``.msrt-fetch/<adapter>/_pending-*`` directories whose
+    mtime is older than ``_PENDING_DIR_MAX_AGE_SECONDS``.
+
+    These are scratch dirs created by ``_run_url_single_chapter``
+    before the atomic move into the final fetch folder. A
+    backend-killed-mid-fetch leaves them behind, and they accumulate
+    every time the user kills the app during a long batch.
+
+    Returns the number of directories removed.
+    """
+
+    import shutil
+    import time
+
+    fetch_root = out_dir / ".msrt-fetch"
+    if not fetch_root.is_dir():
+        return 0
+    cutoff = time.time() - _PENDING_DIR_MAX_AGE_SECONDS
+    removed = 0
+    for adapter_dir in fetch_root.iterdir():
+        if not adapter_dir.is_dir():
+            continue
+        for entry in adapter_dir.iterdir():
+            if not entry.is_dir() or not entry.name.startswith("_pending-"):
+                continue
+            try:
+                if entry.stat().st_mtime > cutoff:
+                    continue
+                shutil.rmtree(entry, ignore_errors=True)
+                removed += 1
+            except OSError as exc:  # pragma: no cover - defensive
+                _LOG.debug("Cleanup of %s failed: %s", entry, exc)
+    return removed
+
+
+def _cleanup_old_tmp_files(out_dir: Path) -> int:
+    """Remove old files under ``.msrt-tmp/``. Each new run rewrites
+    ``mitr.log`` and the rendered ``msrt-gpt-config-*.yaml``; anything
+    older than the cutoff is leftover from a previous run.
+
+    Returns the number of files removed.
+    """
+
+    import time
+
+    tmp_dir = out_dir / ".msrt-tmp"
+    if not tmp_dir.is_dir():
+        return 0
+    cutoff = time.time() - _TMP_FILE_MAX_AGE_SECONDS
+    removed = 0
+    for entry in tmp_dir.iterdir():
+        if not entry.is_file():
+            continue
+        try:
+            if entry.stat().st_mtime > cutoff:
+                continue
+            entry.unlink()
+            removed += 1
+        except OSError as exc:  # pragma: no cover - defensive
+            _LOG.debug("Cleanup of %s failed: %s", entry, exc)
+    return removed
+
+
+def _boot_cleanup(settings: Settings) -> None:
+    """One-shot cleanup that runs in the background after uvicorn is
+    serving: dead pidfiles, stale proxy env, orphan fetch dirs, old
+    scratch files. Each step is independently best-effort — a failure
+    in one must not block the others, and *none* of them must crash
+    the backend.
+
+    Why "after serving" and not "during create_app": some steps (most
+    notably the proxy stop+start dance) can take tens of seconds in
+    the worst case, and a sluggy boot translates to "the UI banner is
+    printed but nothing responds in the browser". Running this in the
+    background gets the API up immediately and lets cleanup happen
+    while the user is reading the home page.
+    """
+
+    from pathlib import Path
+
+    _LOG.info("Boot cleanup: starting")
+
+    # Step 1: align the proxy with the freshly hydrated env. Most
+    # impactful step — without it the user has to manually restart.
+    try:
+        _maybe_realign_proxy_env(settings)
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOG.warning("Boot cleanup: proxy realign failed: %s", exc)
+
+    # Step 2 + 3: scrub leftover files in the typical out_dir. We
+    # don't know the exact out dir the user picked for past jobs (they
+    # can override per-job), so we walk a small list of known
+    # candidates: cwd/out (default), and any dirs already known to
+    # the job storage. Worst case we miss some — that's fine, the
+    # next run will overwrite them.
+    candidates: list[Path] = [Path("out").resolve()]
+    try:
+        for path in candidates:
+            if not path.is_dir():
+                continue
+            removed_dirs = _cleanup_orphan_fetch_dirs(path)
+            removed_files = _cleanup_old_tmp_files(path)
+            if removed_dirs or removed_files:
+                _LOG.info(
+                    "Boot cleanup: pruned %s pending fetch dir(s) and %s "
+                    "stale temp file(s) under %s",
+                    removed_dirs,
+                    removed_files,
+                    path,
+                )
+    except Exception as exc:  # pragma: no cover - defensive
+        _LOG.warning("Boot cleanup: filesystem prune failed: %s", exc)
+
+
+async def _realign_proxy_async(settings: Settings) -> None:
+    """asyncio wrapper that runs the blocking boot cleanup off the
+    event loop so background scheduling is straightforward."""
+
+    import asyncio
+
+    try:
+        await asyncio.to_thread(_boot_cleanup, settings)
+    except Exception:  # pragma: no cover - defensive
+        _LOG.exception("Boot cleanup task raised")
 
 
 def create_app(
@@ -130,6 +309,19 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):  # type: ignore[no-untyped-def]
         await manager.start()
+        # Re-align the proxy env in the background. Doing this
+        # synchronously inside ``create_app`` would block uvicorn for
+        # up to ~45 s (the start_litellm healthcheck wait) before the
+        # API becomes reachable — the user sees the "msrt UI + API →
+        # …" banner and then nothing responds. Fire-and-forget keeps
+        # the boot snappy; the background task will log on failure
+        # but never crash the app.
+        cleanup_task: asyncio.Task[None] | None = None
+        if settings is None:
+            cleanup_task = asyncio.create_task(
+                _realign_proxy_async(resolved_settings)
+            )
+            _app.state.boot_cleanup_task = cleanup_task
         try:
             yield
         finally:
@@ -215,6 +407,17 @@ def create_app(
     @app.post("/api/setup/auto-cover", response_model=AutoCoverResponse)
     def setup_auto_cover(request: AutoCoverRequest) -> AutoCoverResponse:
         return update_auto_cover(request, resolved_settings)
+
+    @app.post("/api/setup/ui-language", response_model=UiLanguageResponse)
+    def setup_ui_language(request: UiLanguageRequest) -> UiLanguageResponse:
+        return update_ui_language(request, resolved_settings)
+
+    @app.post("/api/setup/provider-models", response_model=ProviderModelsResponse)
+    def setup_provider_models(request: ProviderModelsRequest) -> ProviderModelsResponse:
+        try:
+            return update_provider_models(request, resolved_settings)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/server/down", response_model=ServerActionResponse)
     def server_down() -> ServerActionResponse:

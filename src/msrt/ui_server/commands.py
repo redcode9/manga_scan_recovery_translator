@@ -15,8 +15,9 @@ import uuid
 from pathlib import Path
 from typing import Literal
 
+from msrt.config import ProviderName, Settings, resolve_model_alias
 from msrt.models import ManifestFetch, RunManifest, TranslationJob
-from msrt.pipeline import run_local, slugify
+from msrt.pipeline import QuotaExhaustedError, run_local, slugify
 from msrt.scrape.base import ChapterLink, FetchError, FetchResult
 from msrt.scrape.registry import scraper_for_url
 from msrt.scrape.selection import (
@@ -294,23 +295,57 @@ async def _run_url_single_job(ctx: JobContext, url: str) -> None:
         manual_intervention=result.manual_intervention,
     )
 
-    job_model = _build_translation_job(options)
-    loop = asyncio.get_running_loop()
-    manifest = await asyncio.to_thread(
-        _invoke_run_local,
-        ctx,
-        loop=loop,
-        input_dir=final_fetch_dir,
-        out_dir=request.out_dir,
-        series=result.series,
-        chapter_number=result.chapter_number,
-        chapter_title=result.chapter_title,
-        options=options,
-        job=job_model,
-        fetch_metadata=fetch_meta,
-        input_type="url",
-        input_url=url,
+    settings = Settings()
+    fallback_chain = _build_provider_fallback_chain(
+        primary=options.model or settings.default_model, settings=settings
     )
+    loop = asyncio.get_running_loop()
+    last_quota: QuotaExhaustedError | None = None
+    manifest: RunManifest | None = None
+    for index, alias in enumerate(fallback_chain):
+        options.model = alias
+        if index > 0:
+            await ctx.emit(
+                Event(
+                    type="warning",
+                    job_id=ctx.job.id,
+                    chapter=result.chapter_number,
+                    level="warn",
+                    message=(
+                        f"Fallback a {alias}: il provider precedente ha "
+                        "esaurito la quota."
+                    ),
+                )
+            )
+        job_model = _build_translation_job(options)
+        try:
+            manifest = await asyncio.to_thread(
+                _invoke_run_local,
+                ctx,
+                loop=loop,
+                input_dir=final_fetch_dir,
+                out_dir=request.out_dir,
+                series=result.series,
+                chapter_number=result.chapter_number,
+                chapter_title=result.chapter_title,
+                options=options,
+                job=job_model,
+                fetch_metadata=fetch_meta,
+                input_type="url",
+                input_url=url,
+            )
+            break
+        except QuotaExhaustedError as exc:
+            last_quota = exc
+            continue
+
+    if manifest is None:
+        assert last_quota is not None
+        raise QuotaExhaustedError(
+            "Tutti i provider configurati hanno quota esaurita. "
+            f"Ultimo errore: {last_quota}"
+        )
+
     await _record_manifest(ctx, manifest)
     ctx.job.chapters_done = 1
     ctx.save()
@@ -341,6 +376,11 @@ async def _run_url_batch_job(ctx: JobContext, url: str) -> None:
     ctx.job.chapters_total = len(chapters)
     ctx.save()
 
+    settings = Settings()
+    fallback_chain = _build_provider_fallback_chain(
+        primary=options.model or settings.default_model, settings=settings
+    )
+
     for chapter in chapters:
         if ctx.cancel_requested:
             raise asyncio.CancelledError("Batch cancelled by user")
@@ -365,13 +405,35 @@ async def _run_url_batch_job(ctx: JobContext, url: str) -> None:
             ctx.save()
             continue
         try:
-            await _run_chapter_with_retry(
+            await _run_chapter_through_providers(
                 ctx,
                 scraper.name,
                 chapter.url,
                 chapter_number=chapter.chapter_number,
+                fallback_chain=fallback_chain,
             )
             ctx.job.chapters_done += 1
+        except QuotaExhaustedError as exc:
+            # All providers in the fallback chain were exhausted, so
+            # every remaining chapter would fail identically until the
+            # user tops up at least one plan. Abort the whole batch
+            # even if the user opted into ``continue_on_error`` — that
+            # flag is meant for per-chapter fetch/parse hiccups, not for
+            # "every LLM I have a key for has stopped answering".
+            # skip_existing on the retry will pick up exactly where this
+            # run left off.
+            ctx.job.chapters_failed += 1
+            ctx.job.errors.append(f"ch.{chapter.chapter_number}: {exc}")
+            await ctx.emit(
+                Event(
+                    type="error",
+                    job_id=ctx.job.id,
+                    chapter=chapter.chapter_number,
+                    message=str(exc),
+                )
+            )
+            ctx.save()
+            raise
         except Exception as exc:
             ctx.job.chapters_failed += 1
             ctx.job.errors.append(f"ch.{chapter.chapter_number}: {exc}")
@@ -386,6 +448,106 @@ async def _run_url_batch_job(ctx: JobContext, url: str) -> None:
             if not options.continue_on_error:
                 raise
         ctx.save()
+
+
+# Provider order used when expanding the fallback chain past the
+# primary model. Conservative: OpenAI first because it's the most common
+# default, then Anthropic, then Google. The user's per-provider model
+# preference (Settings.model_<provider>) overrides the alias picked.
+_FALLBACK_PROVIDER_ORDER: tuple[ProviderName, ...] = ("openai", "anthropic", "google")
+
+
+def _build_provider_fallback_chain(*, primary: str, settings: Settings) -> list[str]:
+    """Return an ordered list of model aliases to try for one chapter.
+
+    The first entry is always ``primary`` (the model the user actually
+    asked for, even if its key is missing — we don't silently rewrite
+    user intent on the happy path; ``run_local`` will surface the
+    auth error if the key is gone). Subsequent entries are the
+    user-preferred model for each *other* provider that has a key
+    configured, in ``_FALLBACK_PROVIDER_ORDER``.
+
+    Why not just "rotate through every provider with a key": because
+    when the user explicitly picked, say, ``gemini-pro`` for a series,
+    we should still honour it as the first attempt rather than
+    silently substituting ``gemini-flash``.
+    """
+
+    chain: list[str] = [primary]
+    primary_provider, _, _ = resolve_model_alias(primary)
+
+    for provider in _FALLBACK_PROVIDER_ORDER:
+        if provider == primary_provider:
+            continue
+        candidate = settings.model_for_provider(provider)
+        if candidate is None or candidate == primary:
+            continue
+        _, _, env_name = resolve_model_alias(candidate)
+        if env_name is None:
+            continue
+        if not settings.api_key_for_env_name(env_name):
+            continue
+        chain.append(candidate)
+    return chain
+
+
+async def _run_chapter_through_providers(
+    ctx: JobContext,
+    site_name: str,
+    chapter_url: str,
+    *,
+    chapter_number: str,
+    fallback_chain: list[str],
+) -> None:
+    """Run one chapter, falling back to the next provider when the
+    current one returns ``insufficient_quota``.
+
+    We mutate ``ctx.job.request.options.model`` in place because
+    ``_run_url_single_chapter`` reads ``options`` fresh on each call —
+    so the next attempt sees the new model alias. Fetch retries
+    (``_run_chapter_with_retry``) still happen *within* a given
+    provider; only quota exhaustion triggers the provider switch.
+    """
+
+    if not fallback_chain:
+        raise QuotaExhaustedError(
+            "Nessun provider configurato: aggiungi almeno una API key e ri-esegui."
+        )
+
+    options = ctx.job.request.options
+    last_error: QuotaExhaustedError | None = None
+    for index, model_alias in enumerate(fallback_chain):
+        if index > 0:
+            await ctx.emit(
+                Event(
+                    type="warning",
+                    job_id=ctx.job.id,
+                    chapter=chapter_number,
+                    level="warn",
+                    message=(
+                        f"ch.{chapter_number} fallback a {model_alias} "
+                        f"(provider precedente esaurito)."
+                    ),
+                )
+            )
+        options.model = model_alias
+        try:
+            await _run_chapter_with_retry(
+                ctx,
+                site_name,
+                chapter_url,
+                chapter_number=chapter_number,
+            )
+            return
+        except QuotaExhaustedError as exc:
+            last_error = exc
+            continue
+
+    assert last_error is not None  # we entered the loop at least once
+    raise QuotaExhaustedError(
+        "Tutti i provider configurati hanno quota esaurita. "
+        f"Ultimo errore: {last_error}"
+    )
 
 
 async def _run_chapter_with_retry(
@@ -454,6 +616,12 @@ def _is_retryable_chapter_error(exc: Exception) -> bool:
     parsing or 4xx-style client errors. Conservative by design — we'd
     rather skip a retry than burn an MITR pass on a 404."""
 
+    # Quota exhaustion is global: retrying the same chapter just burns
+    # three more API calls before the same 429 comes back. The literal
+    # message contains "HTTP 429" (intentional, for user clarity), so
+    # check the type *before* falling through to the substring match.
+    if isinstance(exc, QuotaExhaustedError):
+        return False
     msg = str(exc)
     return any(hint in msg for hint in _RETRYABLE_HINTS)
 

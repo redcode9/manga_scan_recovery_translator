@@ -12,6 +12,7 @@ from msrt.config import Settings
 from msrt.models import TranslationJob
 from msrt.pipeline import (
     EngineFactory,
+    QuotaExhaustedError,
     collect_local_chapter,
     mitr_target_language,
     reset_translated_dir,
@@ -400,6 +401,62 @@ def test_run_local_raises_when_engine_drops_pages(tmp_path: Path) -> None:
     manifest = json.loads((out_dir / "msrt-run.json").read_text(encoding="utf-8"))
     assert manifest["errors"]
     assert "MITR non ha prodotto" in manifest["errors"][0]
+
+
+def test_run_local_raises_quota_exhausted_when_stderr_signals_429(
+    tmp_path: Path,
+) -> None:
+    """When the upstream LLM returns ``insufficient_quota``, MITR exits 0
+    with the error logged on stderr but no translated images. The
+    pipeline must surface this as ``QuotaExhaustedError`` (not as the
+    generic "MITR non ha prodotto" missing-pages message), so the
+    batch loop can abort early instead of trying every following
+    chapter and getting the same 429."""
+
+    image_dir = tmp_path / "pages"
+    _write_pages(image_dir, [1, 2])
+    out_dir = tmp_path / "out"
+
+    class QuotaErrorEngine(TranslationEngine):
+        def translate(
+            self, input_dir: Path, output_dir: Path, job: TranslationJob
+        ) -> TranslationResult:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            # Match the real MITR stderr we captured in out/.msrt-tmp/mitr.log.
+            stderr = (
+                "ERROR: [local] Error during translating:\n"
+                "openai.RateLimitError: Error code: 429 - {'error': "
+                "{'message': 'litellm.RateLimitError: ... You exceeded "
+                "your current quota, please check your plan and billing "
+                "details. ...', 'code': 'insufficient_quota'}}"
+            )
+            return TranslationResult(
+                output_dir=output_dir,
+                text_output_file=None,
+                stdout="",
+                stderr=stderr,
+            )
+
+    def factory(_settings: Settings, _prompt_config: Path) -> TranslationEngine:
+        return QuotaErrorEngine()
+
+    with pytest.raises(QuotaExhaustedError, match="Quota OpenAI esaurita"):
+        run_local(
+            image_dir,
+            out_dir,
+            series="Smoke",
+            chapter_number="48",
+            chapter_title=None,
+            lang_source="en",
+            lang_target="it",
+            fmt="pdf",
+            job=TranslationJob(model="gpt", use_gpu=False, auto_glossary=False),
+            engine_factory=factory,
+        )
+
+    log_path = out_dir / ".msrt-tmp" / "mitr.log"
+    assert log_path.exists()
+    assert "insufficient_quota" in log_path.read_text(encoding="utf-8")
 
 
 def test_run_local_auto_builds_glossary_when_cache_missing(

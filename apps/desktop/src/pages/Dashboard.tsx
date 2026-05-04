@@ -25,6 +25,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../lib/api";
 import type { ServerActionResponse, SettingsView } from "../lib/api";
+import { useT } from "../lib/i18n";
 import { groupBySeries } from "../lib/library-grouping";
 import { StatusPill } from "../components/StatusPill";
 import { SeriesCard } from "./Library";
@@ -32,6 +33,7 @@ import { SeriesCard } from "./Library";
 const DEFAULT_OUT = "out";
 
 export function Dashboard() {
+  const { t, language } = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const server = useQuery({
     queryKey: ["server-status"],
@@ -51,16 +53,26 @@ export function Dashboard() {
   const recent = groups.slice(0, 6);
   const hasLibrary = groups.length > 0;
   const hasMore = groups.length > recent.length;
+  const seriesWord =
+    language === "it"
+      ? "serie"
+      : groups.length === 1
+        ? "series"
+        : "series";
+  const chaptersWord =
+    language === "it" ? "capitoli su disco" : "chapters on disk";
 
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">La mia libreria</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t("dashboard.title")}
+          </h1>
           <p className="text-sm text-zinc-500">
             {hasLibrary
-              ? `${groups.length} ${groups.length === 1 ? "serie" : "serie"} · ${library.data?.entries.length ?? 0} capitoli su disco`
-              : "Inizia aggiungendo la tua prima serie."}
+              ? `${groups.length} ${seriesWord} · ${library.data?.entries.length ?? 0} ${chaptersWord}`
+              : t("dashboard.empty")}
           </p>
         </div>
         <Link
@@ -68,7 +80,7 @@ export function Dashboard() {
           className="inline-flex min-h-11 items-center gap-2 rounded-md bg-sky-500/90 px-4 py-2 text-sm font-medium text-zinc-950 shadow-sm transition hover:bg-sky-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
         >
           <Plus size={16} aria-hidden="true" />
-          Aggiungi manga
+          {t("nav.add")}
         </Link>
       </header>
 

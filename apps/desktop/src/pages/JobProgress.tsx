@@ -31,6 +31,7 @@ import type { CoverageResponse, Job, JobStatus } from "../lib/api";
 import { useJobEvents } from "../lib/events";
 import type { JobEvent } from "../lib/events";
 import { formatDuration, formatTimestamp, pathBasename } from "../lib/format";
+import { useT } from "../lib/i18n";
 import { StatusPill } from "../components/StatusPill";
 import { useToast } from "../components/Toast";
 
@@ -184,6 +185,7 @@ function Header({
   onRetryFailed: () => void;
   retrying: boolean;
 }) {
+  const { t } = useT();
   const canCancel = !TERMINAL_STATES.has(job.status);
   const canRetry =
     job.kind === "url_batch" &&
@@ -195,7 +197,7 @@ function Header({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-[0.12em] text-zinc-500">
-            Job
+            {t("job.headerLabel")}
           </div>
           <h1 className="font-mono text-2xl font-semibold tracking-tight text-zinc-100">
             {job.id}

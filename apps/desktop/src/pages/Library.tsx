@@ -42,12 +42,14 @@ import {
   posterGradient,
 } from "../lib/library-grouping";
 import { formatTimestamp, pathBasename } from "../lib/format";
+import { useT } from "../lib/i18n";
 import { StatusPill } from "../components/StatusPill";
 import { useToast } from "../components/Toast";
 
 const DEFAULT_OUT = "out";
 
 export function LibraryPage() {
+  const { t, language } = useT();
   const [outDir, setOutDir] = useState(DEFAULT_OUT);
   const [search, setSearch] = useState("");
   const library = useQuery({
@@ -70,11 +72,15 @@ export function LibraryPage() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">La mia libreria</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t("library.title")}
+          </h1>
           <p className="text-sm text-zinc-500">
             {library.isLoading
-              ? "Caricamento…"
-              : `${groups.length} ${groups.length === 1 ? "serie" : "serie"} · ${library.data?.entries.length ?? 0} capitoli su disco`}
+              ? t("common.loading")
+              : language === "it"
+                ? `${groups.length} ${groups.length === 1 ? "serie" : "serie"} · ${library.data?.entries.length ?? 0} capitoli su disco`
+                : `${groups.length} ${groups.length === 1 ? "series" : "series"} · ${library.data?.entries.length ?? 0} chapters on disk`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -88,8 +94,8 @@ export function LibraryPage() {
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cerca serie…"
-              aria-label="Cerca serie"
+              placeholder={t("library.filterPlaceholder")}
+              aria-label={t("library.filterPlaceholder")}
               className="w-56 rounded-md border border-white/10 bg-zinc-900 py-1.5 pl-9 pr-3 text-sm text-zinc-200 shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400/40 focus:ring-offset-1 focus:ring-offset-zinc-950"
             />
           </div>

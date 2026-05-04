@@ -41,7 +41,7 @@ PROVIDER_CATALOG: tuple[ProviderChoice, ...] = (
     ),
     ProviderChoice(
         provider="anthropic",
-        label="Anthropic Claude",
+        label="Anthropic",
         alias="sonnet",
         env_var="ANTHROPIC_API_KEY",
         signup_url="https://console.anthropic.com/",
